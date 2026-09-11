@@ -15,11 +15,16 @@ export async function runJob(job) {
     if (progress[name].status === 'done') continue;   // resumed job: skip finished sources
     progress[name].status = 'running';
 
-    const save = () => q('UPDATE jobs SET progress=$2 WHERE id=$1', [job.id, progress]);
+    // save() runs after every page; it also acts as the cancel checkpoint.
+    const save = async () => {
+      const { rows: [cur] } = await q('UPDATE jobs SET progress=$2 WHERE id=$1 RETURNING status', [job.id, progress]);
+      if (cur.status === 'cancelled') throw Object.assign(new Error('cancelled'), { cancelled: true });
+    };
     try {
       await crawl({ jobId: job.id, locationId: job.location_id, progress: progress[name], save });
       progress[name].status = 'done';
     } catch (err) {
+      if (err.cancelled) { progress[name].status = 'paused'; await q('UPDATE jobs SET progress=$2 WHERE id=$1', [job.id, progress]); return; }
       progress[name].status = 'failed';
       progress[name].error = String(err.message).slice(0, 500);
       console.error(`[job ${job.id}] ${name} failed:`, err);

@@ -84,6 +84,13 @@ app.get('/api/jobs', async (req, res) => {
   const { rows } = await q(`SELECT * FROM jobs WHERE ($1::text IS NULL OR location_id=$1) ORDER BY id DESC LIMIT 50`, [req.query.locationId || null]);
   res.json(rows);
 });
+app.post('/api/jobs/:id/cancel', async (req, res) => {
+  await q(`UPDATE jobs SET status='cancelled' WHERE id=$1 AND status IN ('queued','running')`, [req.params.id]); res.json({ ok: true });
+});
+app.post('/api/jobs/:id/resume', async (req, res) => {
+  // keeps saved cursors; paused sources restart from where they stopped
+  await q(`UPDATE jobs SET status='queued', finished_at=NULL WHERE id=$1 AND status IN ('cancelled','failed')`, [req.params.id]); res.json({ ok: true });
+});
 app.post('/api/jobs/:id/retry-failed', async (req, res) => {
   // Re-queue failed downloads: flip them back to pending so the next run re-ingests them.
   const { rows: [job] } = await q('SELECT * FROM jobs WHERE id=$1', [req.params.id]);
