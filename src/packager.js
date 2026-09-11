@@ -1,24 +1,26 @@
 import { q } from './db.js';
 import { copyObject, putText, limiter } from './storage.js';
+import { buildFilter } from './analytics.js';
 
 export const PACKAGE_SIZES = [1000, 5000, 10000, 20000, 50000, 100000];
 const csvCell = v => v == null ? '' : `"${String(Array.isArray(v) ? v.join(',') : typeof v === 'object' ? JSON.stringify(v) : v).replace(/"/g, '""')}"`;
 const safe = s => String(s || '').replace(/[^\w.\-()+ ]+/g, '_').slice(0, 120);
 
 /** Queue a package: pick N random contacts that aren't in any package yet and lock them in. */
-export async function createPackage(locationId, size, label) {
-  const { rows: [pkg] } = await q(`INSERT INTO packages (location_id, requested_size, label) VALUES ($1,$2,$3) RETURNING *`,
-    [locationId, size, label || null]);
+export async function createPackage(locationId, size, label, filters = {}) {
+  const { rows: [pkg] } = await q(`INSERT INTO packages (location_id, requested_size, label, progress) VALUES ($1,$2,$3,$4) RETURNING *`,
+    [locationId, size, label || null, { filters }]);
 
-  // Random sample of unassigned contacts. TABLESAMPLE would be faster but random() is fine at 100k.
+  // Random sample of unassigned contacts matching the filter (if any).
+  const { sql, params } = buildFilter(locationId, { ...filters, unassigned: true });
+  params.push(pkg.id, size);
   const { rowCount } = await q(`
     INSERT INTO package_contacts (package_id, location_id, contact_id)
-    SELECT $1, c.location_id, c.contact_id
+    SELECT $${params.length - 1}, c.location_id, c.contact_id
     FROM contacts c
-    LEFT JOIN package_contacts pc ON pc.location_id = c.location_id AND pc.contact_id = c.contact_id
-    WHERE c.location_id = $2 AND pc.contact_id IS NULL
+    WHERE ${sql}
     ORDER BY random()
-    LIMIT $3`, [pkg.id, locationId, size]);
+    LIMIT $${params.length}`, params);
 
   await q(`UPDATE packages SET contact_count=$2 WHERE id=$1`, [pkg.id, rowCount]);
   return { ...pkg, contact_count: rowCount };

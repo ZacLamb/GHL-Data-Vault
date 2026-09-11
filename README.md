@@ -75,3 +75,12 @@ contacts to the pool (files already copied into R2 are left in place; delete the
 
 To hand a package to a rep: import `contacts.csv` into their sub-account, then either give them the zip (≤5k files) or an
 rclone/R2 path. Pushing files back into their GHL contact fields via the API is a natural next step if you want it.
+
+## Analytics
+
+Each location has an **analytics →** link. It shows totals (contacts, with/without documents, documents in R2, storage,
+unassigned, failed downloads), a documents-per-contact distribution, and breakdowns by document field, tag, state,
+month added, and file source. Clicking any bar adds it as a filter. Filters combine: min/max documents, must-have /
+must-not-have fields, tags, states, date range, custom field value, keyword, unassigned-only. From a filtered set you
+can export a CSV or create a random package of N contacts drawn only from that filter (still non-overlapping with
+existing packages).

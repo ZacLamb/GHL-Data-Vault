@@ -86,7 +86,7 @@ async function load(){
       <div>${j?`<span class="pill ${j.status}">${j.status}</span> <span class="id">#${j.id} ${fmtD(j.finished_at||j.created_at)}</span>${prog?`<details><summary>progress</summary><pre>${prog}</pre></details>`:''}`:'<span class="id">never run</span>'}</div>
       <div class="stat"><b>${l.files_done}</b> done${Number(l.files_failed)?` · <span class="f">${l.files_failed} failed</span>`:''}</div>
       <div>${fmtB(l.bytes)}</div>
-      <div class="actions"><a href="/api/locations/${l.location_id}/manifest.csv">manifest.csv</a><a href="/api/locations/${l.location_id}/export.zip">export.zip</a></div>
+      <div class="actions"><a href="/analytics.html?loc=${l.location_id}" style="color:var(--amber)">analytics →</a><a href="/api/locations/${l.location_id}/manifest.csv">manifest.csv</a><a href="/api/locations/${l.location_id}/export.zip">export.zip</a></div>
       <div class="actions">${j&&['running','queued'].includes(j.status)?`<button data-cancel="${j.id}">Stop</button>`:`<button class="primary" data-run="${l.location_id}">Run export</button>`}${j&&['cancelled','failed'].includes(j.status)?`<button data-resume="${j.id}">Resume</button>`:''}${j&&Number(l.files_failed)?`<button data-retry="${j.id}">Retry failed</button>`:''}</div>
       <div class="pkgs" id="pkgs-${l.location_id}"></div>
       <div class="actions" style="grid-column:1/-1;justify-content:flex-end;margin-top:6px"><button class="danger" data-reset="${l.location_id}">Reset data</button><button class="danger" data-del="${l.location_id}">Delete location</button></div>`;

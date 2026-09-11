@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GHL Vault · Analytics</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#0f1210;--panel:#151a16;--line:#263029;--ink:#e6e9e4;--dim:#8a948c;--amber:#f2b33d;--green:#5fd38a;--red:#f06a5a;--blue:#6fb3ff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.5 "IBM Plex Mono",ui-monospace,monospace;
+       background-image:radial-gradient(circle at 80% -10%,rgba(242,179,61,.07),transparent 45%)}
+  header{display:flex;align-items:baseline;gap:18px;padding:26px 36px 12px;border-bottom:1px solid var(--line)}
+  h1{font:italic 36px/1 "Instrument Serif",serif;margin:0}
+  h1 small{font:11px "IBM Plex Mono",monospace;color:var(--amber);letter-spacing:.2em;text-transform:uppercase;margin-left:12px;vertical-align:middle}
+  header a{color:var(--dim);margin-left:auto}
+  main{padding:20px 36px 60px;max-width:1400px}
+  h2{font:italic 22px/1 "Instrument Serif",serif;margin:30px 0 12px;color:var(--amber)}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+  .kpi{background:var(--panel);border:1px solid var(--line);padding:14px 16px;border-radius:3px}
+  .kpi .v{font-size:26px;font-weight:600;line-height:1.1}.kpi .l{color:var(--dim);font-size:11px;letter-spacing:.12em;text-transform:uppercase;margin-top:4px}
+  .kpi.g .v{color:var(--green)}.kpi.r .v{color:var(--red)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}
+  .card{background:var(--panel);border:1px solid var(--line);padding:14px 16px;border-radius:3px}
+  .card h3{margin:0 0 10px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+  .bar{display:grid;grid-template-columns:minmax(90px,1.2fr) 3fr 60px;gap:8px;align-items:center;padding:3px 0;font-size:12px;cursor:pointer}
+  .bar:hover .k{color:var(--amber)}
+  .bar .k{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bar .t{height:10px;background:linear-gradient(90deg,var(--amber),#c98a1e);border-radius:1px;min-width:2px}
+  .bar .n{text-align:right;color:var(--dim)}
+  .filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;align-items:end}
+  label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase}
+  input,select,button{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:2px;padding:7px 10px}
+  select[multiple]{height:84px}
+  button{cursor:pointer;background:var(--panel)}button:hover{border-color:var(--amber);color:var(--amber)}
+  button.primary{background:var(--amber);color:#1b1608;border-color:var(--amber);font-weight:600}button.primary:hover{color:#1b1608;filter:brightness(1.08)}
+  .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0}
+  .count{color:var(--amber);font-weight:600}
+  table{width:100%;border-collapse:collapse;font-size:12px}th{text-align:left;color:var(--dim);font-weight:500;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:8px;border-bottom:1px solid var(--amber)}
+  td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}tr:hover td{background:rgba(255,255,255,.025)}
+  .id{color:var(--dim);font-size:11px}.tag{display:inline-block;border:1px solid var(--line);padding:0 5px;border-radius:2px;font-size:10px;margin:1px;color:var(--dim)}
+  .pill{display:inline-block;padding:1px 6px;border:1px solid var(--green);color:var(--green);border-radius:2px;font-size:10px}
+  .pager{display:flex;gap:10px;align-items:center;justify-content:flex-end;margin-top:10px;color:var(--dim)}
+  .toast{position:fixed;right:24px;bottom:24px;background:var(--panel);border:1px solid var(--amber);padding:12px 16px;border-radius:3px;opacity:0;transform:translateY(8px);transition:.25s}.toast.show{opacity:1;transform:none}
+  .tableWrap{overflow-x:auto}
+</style>
+</head>
+<body>
+<header><h1>Analytics<small id="locLabel"></small></h1><a href="/">← locations</a></header>
+<main>
+  <div class="kpis" id="kpis"></div>
+
+  <h2>Breakdowns <span class="id">— click any row to add it as a filter</span></h2>
+  <div class="grid">
+    <div class="card"><h3>Documents per contact</h3><div id="dist"></div></div>
+    <div class="card"><h3>Contacts by document field</h3><div id="fields"></div></div>
+    <div class="card"><h3>Contacts by tag</h3><div id="tags"></div></div>
+    <div class="card"><h3>Contacts by state</h3><div id="states"></div></div>
+    <div class="card"><h3>Contacts added per month</h3><div id="months"></div></div>
+    <div class="card"><h3>Files by source</h3><div id="sources"></div></div>
+  </div>
+
+  <h2>Filter the dataset</h2>
+  <div class="card">
+    <div class="filters">
+      <label>Min documents<input id="minFiles" type="number" min="0" placeholder="e.g. 1"></label>
+      <label>Max documents<input id="maxFiles" type="number" min="0"></label>
+      <label>Must have fields<select id="fields_sel" multiple></select></label>
+      <label>Must NOT have fields<select id="notFields_sel" multiple></select></label>
+      <label>Tags (any)<select id="tags_sel" multiple></select></label>
+      <label>States (any)<select id="states_sel" multiple></select></label>
+      <label>Added from<input id="addedFrom" type="date"></label>
+      <label>Added to<input id="addedTo" type="date"></label>
+      <label>Custom field<select id="customKey"><option value="">—</option></select></label>
+      <label>Custom value contains<input id="customValue"></label>
+      <label>Search name / email / company / phone<input id="q"></label>
+      <label>Only unassigned<select id="unassigned"><option value="">no</option><option value="1">yes</option></select></label>
+    </div>
+    <div class="actions">
+      <button class="primary" id="apply">Apply filters</button>
+      <button id="clear">Clear</button>
+      <span>Matching: <span class="count" id="matchCount">—</span> contacts</span>
+      <span style="flex:1"></span>
+      <button id="csv">Export filtered CSV</button>
+      <select id="pkgSize"></select>
+      <button id="pkg">Package random N from filter</button>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <div class="tableWrap"><table><thead><tr><th>Contact</th><th>Company</th><th>State</th><th>Docs</th><th>Fields</th><th>Tags</th><th>Added</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
+    <div class="pager"><button id="prev">‹</button><span id="pageInfo"></span><button id="next">›</button></div>
+  </div>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+const loc=new URLSearchParams(location.search).get('loc');
+const $=s=>document.querySelector(s);
+const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3200)};
+const api=(p,o={})=>fetch(p,{headers:{'Content-Type':'application/json'},...o,body:o.body?JSON.stringify(o.body):undefined}).then(r=>r.json());
+const N=n=>Number(n||0).toLocaleString();
+const fmtB=n=>{n=Number(n||0);const u=['B','KB','MB','GB','TB'];let i=0;while(n>=1024&&i<4){n/=1024;i++}return n.toFixed(i?1:0)+' '+u[i]};
+let page=1,total=0,LIMIT=50;
+$('#locLabel').textContent=loc;
+
+function bars(el,rows,key='contacts',onClick){
+  const max=Math.max(1,...rows.map(r=>Number(r[key])));
+  el.innerHTML=rows.length?rows.map(r=>`<div class="bar" data-k="${String(r.key).replace(/"/g,'&quot;')}"><span class="k" title="${r.key}">${r.key??'(none)'}</span><div class="t" style="width:${100*Number(r[key])/max}%"></div><span class="n">${N(r[key])}</span></div>`).join(''):'<span class="id">no data yet</span>';
+  if(onClick)el.querySelectorAll('.bar').forEach(b=>b.onclick=()=>onClick(b.dataset.k));
+}
+function fillSelect(sel,items){sel.innerHTML=items.map(i=>`<option value="${String(i).replace(/"/g,'&quot;')}">${i}</option>`).join('')}
+function selectValue(sel,v){[...sel.options].forEach(o=>{if(o.value===v)o.selected=true});}
+
+async function loadAnalytics(){
+  const a=await api(`/api/locations/${loc}/analytics`);const s=a.summary;
+  $('#kpis').innerHTML=[
+    ['Contacts',N(s.contacts)],['With documents',N(s.with_docs),'g'],['Without documents',N(s.without_docs),'r'],
+    ['Documents in R2',N(s.documents)],['Avg docs (contacts w/ docs)',s.avg_per_contact_with_docs??'—'],['Storage',fmtB(s.bytes)],
+    ['Unassigned to packages',N(s.unassigned)],['Failed downloads',N(s.failed_files),s.failed_files?'r':''],
+  ].map(([l,v,c])=>`<div class="kpi ${c||''}"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
+  bars($('#dist'),[{key:'0',contacts:s.without_docs},{key:'1',contacts:s.b1},{key:'2–4',contacts:s.b2_4},{key:'5–9',contacts:s.b5_9},{key:'10+',contacts:s.b10p}],'contacts',k=>{
+    const m={'0':[0,0],'1':[1,1],'2–4':[2,4],'5–9':[5,9],'10+':[10,'']}[k];$('#minFiles').value=m[0];$('#maxFiles').value=m[1];run()});
+  bars($('#fields'),a.fields,'contacts',k=>{selectValue($('#fields_sel'),k);run()});
+  bars($('#tags'),a.tags,'contacts',k=>{selectValue($('#tags_sel'),k);run()});
+  bars($('#states'),a.states,'contacts',k=>{selectValue($('#states_sel'),k);run()});
+  bars($('#months'),a.months,'contacts',k=>{$('#addedFrom').value=k+'-01';const d=new Date(k+'-01T00:00:00Z');d.setUTCMonth(d.getUTCMonth()+1);d.setUTCDate(0);$('#addedTo').value=d.toISOString().slice(0,10);run()});
+  bars($('#sources'),a.sources,'files');
+  fillSelect($('#fields_sel'),a.fields.map(f=>f.key));fillSelect($('#notFields_sel'),a.fields.map(f=>f.key));
+  fillSelect($('#tags_sel'),a.tags.map(f=>f.key));fillSelect($('#states_sel'),a.states.map(f=>f.key));
+  $('#customKey').innerHTML='<option value="">—</option>'+a.customKeys.map(k=>`<option>${k}</option>`).join('');
+}
+const multi=sel=>[...sel.selectedOptions].map(o=>o.value);
+function filters(){return{minFiles:$('#minFiles').value,maxFiles:$('#maxFiles').value,fields:multi($('#fields_sel')),notFields:multi($('#notFields_sel')),
+  tags:multi($('#tags_sel')),states:multi($('#states_sel')),addedFrom:$('#addedFrom').value,addedTo:$('#addedTo').value,
+  customKey:$('#customKey').value,customValue:$('#customValue').value,q:$('#q').value,unassigned:!!$('#unassigned').value}}
+async function run(p=1){
+  page=p;const r=await api(`/api/locations/${loc}/search`,{method:'POST',body:{filters:filters(),page,limit:LIMIT}});
+  total=r.total;$('#matchCount').textContent=N(total);
+  $('#rows').innerHTML=r.rows.map(c=>`<tr><td><b>${[c.first_name,c.last_name].filter(Boolean).join(' ')||'—'}</b><div class="id">${c.email||''} ${c.phone||''}</div><div class="id">${c.contact_id}</div></td>
+    <td>${c.company||''}</td><td>${c.state||''}</td><td><b>${c.docs}</b></td><td class="id">${c.fields||''}</td><td>${(c.tags||[]).map(t=>`<span class="tag">${t}</span>`).join('')}</td>
+    <td class="id">${c.date_added?new Date(c.date_added).toLocaleDateString():''}</td><td>${c.assigned?'<span class="pill">packaged</span>':''}</td></tr>`).join('')||'<tr><td colspan="8" class="id">no matches</td></tr>';
+  const pages=Math.max(1,Math.ceil(total/LIMIT));$('#pageInfo').textContent=`page ${page} / ${pages}`;$('#prev').disabled=page<=1;$('#next').disabled=page>=pages;
+}
+$('#apply').onclick=()=>run(1);
+$('#clear').onclick=()=>{document.querySelectorAll('.filters input').forEach(i=>i.value='');document.querySelectorAll('.filters select').forEach(s=>{[...s.options].forEach(o=>o.selected=false);s.value=''});run(1)};
+$('#prev').onclick=()=>run(page-1);$('#next').onclick=()=>run(page+1);
+$('#csv').onclick=async()=>{const r=await fetch(`/api/locations/${loc}/search.csv`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filters:filters()})});
+  const a=document.createElement('a');a.href=URL.createObjectURL(await r.blob());a.download=`${loc}-filtered.csv`;a.click()};
+$('#pkg').onclick=async()=>{const size=Number($('#pkgSize').value);if(!confirm(`Create a package of ${N(size)} random contacts from the current filter?`))return;
+  const r=await api(`/api/locations/${loc}/packages`,{method:'POST',body:{size,filters:filters(),label:'filtered'}});toast(r.error||`Package #${r.id} queued with ${N(r.contact_count)} contacts`);loadAnalytics();run(page)};
+api(`/api/locations/${loc}/pool`).then(p=>{$('#pkgSize').innerHTML=p.sizes.map(s=>`<option value="${s}">${s>=1000?s/1000+'k':s}</option>`).join('')});
+loadAnalytics();run(1);
+</script>
+</body>
+</html>

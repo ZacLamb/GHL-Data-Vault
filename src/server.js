@@ -9,6 +9,7 @@ import { getObjectStream } from './storage.js';
 import { ghl } from './ghl.js';
 import { createPackage, dissolvePackage, PACKAGE_SIZES } from './packager.js';
 import { listObjects, deletePrefix } from './storage.js';
+import { summary, breakdowns, search, searchAll } from './analytics.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -163,7 +164,7 @@ app.get('/api/locations/:id/pool', async (req, res) => {
 app.post('/api/locations/:id/packages', async (req, res) => {
   const size = Number(req.body?.size);
   if (!PACKAGE_SIZES.includes(size)) return res.status(400).json({ error: `size must be one of ${PACKAGE_SIZES.join(', ')}` });
-  const pkg = await createPackage(req.params.id, size, req.body?.label);
+  const pkg = await createPackage(req.params.id, size, req.body?.label, req.body?.filters || {});
   if (!pkg.contact_count) { await dissolvePackage(pkg.id); return res.status(409).json({ error: 'No unassigned contacts left in this location' }); }
   res.json(pkg);
 });
@@ -199,6 +200,24 @@ app.get('/api/packages/:id/export.zip', async (req, res) => {
   zip.pipe(res);
   for await (const o of listObjects(pkg.r2_prefix + '/')) zip.append(await getObjectStream(o.Key), { name: o.Key.replace(pkg.r2_prefix + '/', '') });
   zip.finalize();
+});
+
+// --- analytics ------------------------------------------------------------------------
+app.get('/api/locations/:id/analytics', async (req, res) => {
+  const [sum, brk] = await Promise.all([summary(req.params.id), breakdowns(req.params.id)]);
+  res.json({ summary: sum, ...brk });
+});
+app.post('/api/locations/:id/search', async (req, res) => {
+  const { filters = {}, page, limit } = req.body || {};
+  res.json(await search(req.params.id, filters, { page, limit }));
+});
+app.post('/api/locations/:id/search.csv', async (req, res) => {
+  const filters = req.body?.filters || {};
+  res.set('Content-Type', 'text/csv').set('Content-Disposition', `attachment; filename="${req.params.id}-filtered.csv"`);
+  const cols = ['contact_id','first_name','last_name','email','phone','company','address','city','state','postal_code','tags','date_added','docs'];
+  res.write(cols.join(',') + '\n');
+  for await (const r of searchAll(req.params.id, filters)) res.write(cols.map(c => csvCell(Array.isArray(r[c]) ? r[c].join(';') : r[c])).join(',') + '\n');
+  res.end();
 });
 
 app.get('/api/sources', (_req, res) => res.json(ALL_SOURCES));
