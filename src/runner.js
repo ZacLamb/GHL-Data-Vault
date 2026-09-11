@@ -1,5 +1,6 @@
 import { q } from './db.js';
 import { SOURCES } from './sources/index.js';
+import { buildPackage } from './packager.js';
 
 let running = false;
 
@@ -39,7 +40,12 @@ export async function tick() {
   try {
     // On boot, anything left 'running' from a previous container is resumed from its saved cursors.
     const { rows } = await q(`SELECT * FROM jobs WHERE status IN ('queued','running') ORDER BY status DESC, id ASC LIMIT 1`);
-    if (rows[0]) await runJob(rows[0]);
+    if (rows[0]) { await runJob(rows[0]); return; }
+    const { rows: pkgs } = await q(`SELECT * FROM packages WHERE status IN ('queued','running') ORDER BY status DESC, id ASC LIMIT 1`);
+    if (pkgs[0]) {
+      try { await buildPackage(pkgs[0]); }
+      catch (err) { console.error(`[package ${pkgs[0].id}]`, err); await q(`UPDATE packages SET status='failed', error=$2 WHERE id=$1`, [pkgs[0].id, String(err.message).slice(0, 500)]); }
+    }
   } catch (err) {
     console.error('runner error', err);
   } finally {

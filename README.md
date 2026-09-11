@@ -57,3 +57,21 @@ accounts without buffering on the server.
   add that call.
 - **Signed URLs.** Some GHL storage links expire. That's why ingest downloads immediately on discovery rather than
   collecting first.
+
+## Packages — splitting contacts across reps
+
+After `contact_fields` has run for a location, the dashboard shows a **PACKAGE** bar with 1k / 5k / 10k / 20k / 50k / 100k
+buttons. Each click:
+
+1. Picks that many contacts **at random** from the ones not already in a package (a contact can only ever be in one
+   package, so packages never overlap).
+2. Writes `packages/{locationId}/pkg-{id}/contacts.csv` — GHL-importable columns plus every non-file custom field.
+3. Copies each contact's files inside R2 to `pkg-{id}/{contactId}/{field name}/{filename}` (server-side copies, no
+   download/upload; ~$4.50 per million files).
+4. Writes `manifest.csv` (contact_id → package_path) and a README into the package folder.
+
+Buttons grey out when there aren't enough unassigned contacts left. **dissolve** deletes the package record and returns its
+contacts to the pool (files already copied into R2 are left in place; delete the prefix manually if you want them gone).
+
+To hand a package to a rep: import `contacts.csv` into their sub-account, then either give them the zip (≤5k files) or an
+rclone/R2 path. Pushing files back into their GHL contact fields via the API is a natural next step if you want it.

@@ -7,6 +7,8 @@ import { startWorker } from './runner.js';
 import { ALL_SOURCES } from './sources/index.js';
 import { getObjectStream } from './storage.js';
 import { ghl } from './ghl.js';
+import { createPackage, dissolvePackage, PACKAGE_SIZES } from './packager.js';
+import { listObjects } from './storage.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -102,13 +104,71 @@ app.get('/api/locations/:id/manifest.csv', async (req, res) => {
   res.end();
 });
 
+const ZIP_MAX_FILES = Number(process.env.ZIP_MAX_FILES || 5000);
 app.get('/api/locations/:id/export.zip', async (req, res) => {
   const { rows } = await q(`SELECT r2_key FROM files WHERE location_id=$1 AND status='done' AND r2_key IS NOT NULL`, [req.params.id]);
+  if (rows.length > ZIP_MAX_FILES) {
+    return res.status(413).type('text/plain').send(
+      `This location has ${rows.length} files — too many to zip through the server.\n` +
+      `Pull it straight from R2 instead:\n\n` +
+      `  rclone sync r2:${process.env.R2_BUCKET}/${req.params.id} ./${req.params.id}\n\n` +
+      `(rclone config: type=s3, provider=Cloudflare, endpoint=https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com)\n` +
+      `Or use manifest.csv to look up individual files by contact ID.\n`);
+  }
   res.set('Content-Type', 'application/zip').set('Content-Disposition', `attachment; filename="${req.params.id}-files.zip"`);
   const zip = archiver('zip', { zlib: { level: 1 } }); // most content is already compressed
   zip.on('error', err => { console.error(err); res.destroy(err); });
   zip.pipe(res);
   for (const { r2_key } of rows) zip.append(await getObjectStream(r2_key), { name: r2_key });
+  zip.finalize();
+});
+
+// --- packages -------------------------------------------------------------------------
+app.get('/api/locations/:id/pool', async (req, res) => {
+  const { rows: [r] } = await q(`
+    SELECT (SELECT count(*) FROM contacts WHERE location_id=$1) AS total,
+           (SELECT count(*) FROM package_contacts WHERE location_id=$1) AS assigned`, [req.params.id]);
+  res.json({ total: Number(r.total), assigned: Number(r.assigned), available: Number(r.total) - Number(r.assigned), sizes: PACKAGE_SIZES });
+});
+
+app.post('/api/locations/:id/packages', async (req, res) => {
+  const size = Number(req.body?.size);
+  if (!PACKAGE_SIZES.includes(size)) return res.status(400).json({ error: `size must be one of ${PACKAGE_SIZES.join(', ')}` });
+  const pkg = await createPackage(req.params.id, size, req.body?.label);
+  if (!pkg.contact_count) { await dissolvePackage(pkg.id); return res.status(409).json({ error: 'No unassigned contacts left in this location' }); }
+  res.json(pkg);
+});
+
+app.get('/api/packages', async (req, res) => {
+  const { rows } = await q(`SELECT * FROM packages WHERE ($1::text IS NULL OR location_id=$1) ORDER BY id DESC LIMIT 100`, [req.query.locationId || null]);
+  res.json(rows.map(p => ({ ...p, progress: { copied: p.progress?.copied, total: p.progress?.total, failed: p.progress?.failed?.length || 0 } })));
+});
+
+app.delete('/api/packages/:id', async (req, res) => { await dissolvePackage(req.params.id); res.json({ ok: true }); });
+
+app.get('/api/packages/:id/contacts.csv', async (req, res) => {
+  const { rows: [pkg] } = await q('SELECT * FROM packages WHERE id=$1', [req.params.id]);
+  if (!pkg?.r2_prefix) return res.status(404).send('package not built yet');
+  res.set('Content-Type', 'text/csv').set('Content-Disposition', `attachment; filename="package-${pkg.id}-contacts.csv"`);
+  (await getObjectStream(`${pkg.r2_prefix}/contacts.csv`)).pipe(res);
+});
+app.get('/api/packages/:id/manifest.csv', async (req, res) => {
+  const { rows: [pkg] } = await q('SELECT * FROM packages WHERE id=$1', [req.params.id]);
+  if (!pkg?.r2_prefix) return res.status(404).send('package not built yet');
+  res.set('Content-Type', 'text/csv').set('Content-Disposition', `attachment; filename="package-${pkg.id}-manifest.csv"`);
+  (await getObjectStream(`${pkg.r2_prefix}/manifest.csv`)).pipe(res);
+});
+app.get('/api/packages/:id/export.zip', async (req, res) => {
+  const { rows: [pkg] } = await q('SELECT * FROM packages WHERE id=$1', [req.params.id]);
+  if (!pkg?.r2_prefix || pkg.status !== 'done') return res.status(404).send('package not built yet');
+  if (pkg.file_count > ZIP_MAX_FILES) {
+    return res.status(413).type('text/plain').send(`Package has ${pkg.file_count} files — pull it with:\n  rclone sync r2:${process.env.R2_BUCKET}/${pkg.r2_prefix} ./package-${pkg.id}\n`);
+  }
+  res.set('Content-Type', 'application/zip').set('Content-Disposition', `attachment; filename="package-${pkg.id}.zip"`);
+  const zip = archiver('zip', { zlib: { level: 1 } });
+  zip.on('error', err => { console.error(err); res.destroy(err); });
+  zip.pipe(res);
+  for await (const o of listObjects(pkg.r2_prefix + '/')) zip.append(await getObjectStream(o.Key), { name: o.Key.replace(pkg.r2_prefix + '/', '') });
   zip.finalize();
 });
 

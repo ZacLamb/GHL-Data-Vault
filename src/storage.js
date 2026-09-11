@@ -1,4 +1,4 @@
-import { S3Client, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, ListObjectsV2Command, CopyObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { Readable } from 'node:stream';
 import { q } from './db.js';
@@ -73,7 +73,7 @@ export async function ingest(jobId, locationId, url, meta = {}) {
 }
 
 // Small concurrency helper so crawlers can fire off several downloads at once.
-export function limiter(n = Number(process.env.DOWNLOAD_CONCURRENCY || 4)) {
+export function limiter(n = Number(process.env.DOWNLOAD_CONCURRENCY || 16)) {
   let active = 0; const queue = [];
   const next = () => { if (active < n && queue.length) { active++; const { fn, res, rej } = queue.shift(); fn().then(res, rej).finally(() => { active--; next(); }); } };
   return fn => new Promise((res, rej) => { queue.push({ fn, res, rej }); next(); });
@@ -91,4 +91,11 @@ export async function* listObjects(prefix) {
 export async function getObjectStream(key) {
   const res = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
   return res.Body;
+}
+
+export async function copyObject(fromKey, toKey) {
+  await r2.send(new CopyObjectCommand({ Bucket: BUCKET, CopySource: `/${BUCKET}/${encodeURIComponent(fromKey).replace(/%2F/g, '/')}`, Key: toKey }));
+}
+export async function putText(key, body, contentType = 'text/csv') {
+  await r2.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: body, ContentType: contentType }));
 }
