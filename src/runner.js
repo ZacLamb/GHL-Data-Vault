@@ -1,0 +1,53 @@
+import { q } from './db.js';
+import { SOURCES } from './sources/index.js';
+
+let running = false;
+
+export async function runJob(job) {
+  const progress = job.progress || {};
+  await q(`UPDATE jobs SET status='running', started_at=COALESCE(started_at, now()), error=NULL WHERE id=$1`, [job.id]);
+
+  for (const name of job.sources) {
+    const crawl = SOURCES[name];
+    if (!crawl) continue;
+    progress[name] ??= {};
+    if (progress[name].status === 'done') continue;   // resumed job: skip finished sources
+    progress[name].status = 'running';
+
+    const save = () => q('UPDATE jobs SET progress=$2 WHERE id=$1', [job.id, progress]);
+    try {
+      await crawl({ jobId: job.id, locationId: job.location_id, progress: progress[name], save });
+      progress[name].status = 'done';
+    } catch (err) {
+      progress[name].status = 'failed';
+      progress[name].error = String(err.message).slice(0, 500);
+      console.error(`[job ${job.id}] ${name} failed:`, err);
+    }
+    await save();
+  }
+
+  const failed = job.sources.some(s => progress[s]?.status === 'failed');
+  await q(`UPDATE jobs SET status=$2, finished_at=now(), progress=$3 WHERE id=$1`,
+    [job.id, failed ? 'failed' : 'done', progress]);
+}
+
+// Simple in-process worker. One job at a time keeps us well inside GHL rate limits;
+// bump to a pool if you want parallel locations.
+export async function tick() {
+  if (running) return;
+  running = true;
+  try {
+    // On boot, anything left 'running' from a previous container is resumed from its saved cursors.
+    const { rows } = await q(`SELECT * FROM jobs WHERE status IN ('queued','running') ORDER BY status DESC, id ASC LIMIT 1`);
+    if (rows[0]) await runJob(rows[0]);
+  } catch (err) {
+    console.error('runner error', err);
+  } finally {
+    running = false;
+  }
+}
+
+export function startWorker() {
+  setInterval(tick, 5000);
+  tick();
+}

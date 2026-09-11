@@ -1,0 +1,59 @@
+# GHL Vault — file exporter for GoHighLevel sub-accounts
+
+GHL's CSV export covers every data set except file uploads. This tool crawls every place a file can live
+in a sub-account, streams each file into Cloudflare R2, and writes a manifest you can join back to your
+contact / opportunity / conversation CSVs.
+
+## What it exports
+
+| Source key           | Where it looks                                            | GHL endpoint(s)                                  |
+|----------------------|-----------------------------------------------------------|--------------------------------------------------|
+| `contact_fields`     | Contact custom fields of type File Upload                 | `/locations/{id}/customFields`, `POST /contacts/search` |
+| `opportunity_fields` | Opportunity custom fields of type File Upload             | `/opportunities/search`                          |
+| `conversations`      | Message attachments (MMS/email/chat) + call recordings & voicemails | `/conversations/search`, `/conversations/{id}/messages`, `.../recording` |
+| `forms`, `surveys`   | Uploads inside form/survey submissions                    | `/forms/submissions`, `/surveys/submissions`     |
+| `media`              | Media Library (recurses folders)                          | `/medias/files`                                  |
+| `documents`          | Documents & Contracts (signed PDFs)                       | `/proposals/document` — verify on first run, see notes |
+
+R2 layout: `{locationId}/{source}/{contactId|conversationId|...}/{fieldName|messageId}/{fileId}_{filename}`
+
+Manifest columns: `source, contact_id, opportunity_id, conversation_id, message_id, submission_id, document_id,
+field_id, field_name, original_filename, mime_type, size_bytes, r2_key, source_url, status, error`.
+
+## Deploy (GitHub → Railway)
+
+1. Push this repo to GitHub, create a Railway service from it, add a Postgres plugin (Railway sets `DATABASE_URL`).
+2. Set the env vars from `.env.example`. Create an R2 bucket + API token (Object Read & Write).
+3. Open the service URL, log in with `ADMIN_PASSWORD` (any username).
+
+## Auth options
+
+- **Per-location PIT** — Settings → Private Integrations in the sub-account. Scopes needed: contacts, opportunities,
+  conversations, conversations/message, forms, surveys, locations, locations/customFields, medias, documents/contracts (all read).
+  Paste it when adding the location. Fine for a handful of accounts.
+- **Agency OAuth (recommended for 85+)** — create a marketplace app (private, agency-level distribution) with the same
+  read scopes, install it at the agency, put the agency access token + company id in env. Click **Import sub-accounts**
+  and the tool mints per-location tokens automatically (`POST /oauth/locationToken`). You'll want a small refresh cron
+  for the agency token since it expires in 24h.
+
+## Running an export
+
+Pick sources, click **Run export**. Jobs run one at a time in the background, save cursors after every page, and resume
+automatically if Railway restarts the container. Re-running a location is idempotent: files already in R2 are skipped
+(unique on `location_id + source_url`), so a second run only picks up new files. **Retry failed** re-queues downloads
+that errored (expired signed URLs are the usual cause — they're re-fetched fresh from the API on the next crawl).
+
+`manifest.csv` and `export.zip` are per-location. The zip is streamed straight out of R2, so it works for large
+accounts without buffering on the server.
+
+## Things to verify on the first real run
+
+- **File field value shape.** `parseFileFieldValue()` handles string / array / `{docId: {url, meta}}`. If a field comes
+  back in another shape, the file shows up as `filesFound: 0` for that source — log one contact's `customFields` and extend the parser.
+- **Recordings** use the `/recording` endpoint with the bearer token and land as `.wav`. If a message type isn't
+  `TYPE_CALL`/`TYPE_VOICEMAIL` on your accounts, add it to `CALL_TYPES` in `sources/conversations.js`.
+- **Documents & Contracts** is the newest and least documented API. The crawler harvests any file-looking URL off each
+  document object; if the signed PDF isn't exposed on the list endpoint, check whether a per-document GET returns it and
+  add that call.
+- **Signed URLs.** Some GHL storage links expire. That's why ingest downloads immediately on discovery rather than
+  collecting first.
