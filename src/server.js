@@ -115,7 +115,12 @@ app.get('/api/locations/:id/export.zip', async (req, res) => {
 app.get('/api/sources', (_req, res) => res.json(ALL_SOURCES));
 
 const port = process.env.PORT || 3000;
-migrate().then(() => {
-  startWorker();
-  app.listen(port, () => console.log(`ghl-vault listening on ${port}`));
-});
+for (const k of ['R2_ACCOUNT_ID','R2_ACCESS_KEY_ID','R2_SECRET_ACCESS_KEY','R2_BUCKET'])
+  if (!process.env[k]) console.warn(`WARN: ${k} not set — downloads will fail until it is`);
+
+migrate()
+  .then(() => {
+    startWorker();
+    app.listen(port, () => console.log(`ghl-vault listening on ${port}`));
+  })
+  .catch(err => { console.error('FATAL on startup:', err.message); process.exit(1); });

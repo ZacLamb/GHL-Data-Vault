@@ -2,12 +2,15 @@ import pg from 'pg';
 
 export const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes('railway') ? { rejectUnauthorized: false } : undefined,
+  // Railway's internal Postgres URL (postgres.railway.internal) does NOT support SSL and errors if you force it.
+  // Only enable SSL when explicitly asked (e.g. using the public proxy URL).
+  ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
 });
 
 export const q = (text, params) => pool.query(text, params);
 
 export async function migrate() {
+  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is not set — add the Postgres plugin and reference its DATABASE_URL in this service\'s variables');
   await q(`
     CREATE TABLE IF NOT EXISTS locations (
       location_id   TEXT PRIMARY KEY,
