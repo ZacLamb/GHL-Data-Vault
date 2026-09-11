@@ -39,8 +39,15 @@ export async function contactFields(ctx) {
     const data = await ghl(locationId, 'POST', '/contacts/search', {
       body: { locationId, pageLimit: 100, ...(searchAfter ? { searchAfter } : {}) },
     });
-    const contacts = data.contacts || [];
+    let contacts = data.contacts || [];
     if (!contacts.length) break;
+
+    // Some accounts' search results omit custom field values entirely. If a whole page has none,
+    // fetch each contact individually (slower, but complete) and remember that for the rest of the run.
+    if (fields.length && (progress.fetchIndividually || !contacts.some(c => c.customFields?.length))) {
+      progress.fetchIndividually = true;
+      contacts = await Promise.all(contacts.map(c => ghl(locationId, 'GET', `/contacts/${c.id}`).then(d => ({ ...c, ...d.contact })).catch(() => c)));
+    }
 
     const tasks = [];
     for (const c of contacts) {

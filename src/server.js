@@ -6,7 +6,7 @@ import { migrate, q } from './db.js';
 import { startWorker } from './runner.js';
 import { ALL_SOURCES } from './sources/index.js';
 import { getObjectStream } from './storage.js';
-import { ghl } from './ghl.js';
+import { ghl, parseFileFieldValue } from './ghl.js';
 import { createPackage, dissolvePackage, PACKAGE_SIZES } from './packager.js';
 import { listObjects, deletePrefix } from './storage.js';
 import { summary, breakdowns, search, searchAll } from './analytics.js';
@@ -218,6 +218,25 @@ app.post('/api/locations/:id/search.csv', async (req, res) => {
   res.write(cols.join(',') + '\n');
   for await (const r of searchAll(req.params.id, filters)) res.write(cols.map(c => csvCell(Array.isArray(r[c]) ? r[c].join(';') : r[c])).join(',') + '\n');
   res.end();
+});
+
+// --- debug: see exactly what GHL returns for one contact -------------------------------
+app.get('/api/locations/:id/debug/:contactId', async (req, res) => {
+  const { id, contactId } = req.params;
+  try {
+    const defs = await ghl(id, 'GET', `/locations/${id}/customFields`, { query: { model: 'contact' } });
+    const contact = await ghl(id, 'GET', `/contacts/${contactId}`);
+    const search = await ghl(id, 'POST', '/contacts/search', { body: { locationId: id, pageLimit: 1, filters: [{ field: 'id', operator: 'eq', value: contactId }] } }).catch(e => ({ error: e.message }));
+    const fileDefs = (defs.customFields || []).filter(f => /FILE/i.test(f.dataType || ''));
+    const parsed = (contact.contact?.customFields || []).flatMap(cf => parseFileFieldValue(cf.value).map(f => ({ fieldId: cf.id, ...f })));
+    res.json({
+      fileFieldDefinitions: fileDefs,
+      allFieldDataTypes: [...new Set((defs.customFields || []).map(f => f.dataType))],
+      contact_get: contact.contact,
+      contact_from_search: search.contacts?.[0] ?? search,
+      parsedFiles: parsed,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/sources', (_req, res) => res.json(ALL_SOURCES));
