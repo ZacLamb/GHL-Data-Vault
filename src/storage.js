@@ -1,6 +1,6 @@
 import { S3Client, GetObjectCommand, ListObjectsV2Command, CopyObjectCommand, PutObjectCommand, DeleteObjectsCommand } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { q } from './db.js';
 import { getToken } from './ghl.js';
 
@@ -41,9 +41,25 @@ export async function ingest(jobId, locationId, url, meta = {}) {
   if (existing.status === 'done') return existing; // already in R2 from a previous run
 
   try {
-    const headers = meta.authenticated ? { Authorization: `Bearer ${await getToken(locationId)}`, Version: process.env.GHL_API_VERSION || '2021-07-28' } : {};
-    const res = await fetch(url, { headers, redirect: 'follow' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    // Candidate URLs in order: public CDN link (if any), then the API link with the bearer token.
+    const isApi = u => /^https:\/\/services\.leadconnectorhq\.com\//.test(u);
+    const candidates = [];
+    if (meta.altUrl) candidates.push({ u: meta.altUrl, auth: false });
+    candidates.push({ u: url, auth: meta.authenticated || isApi(url) });
+
+    let res, lastErr;
+    for (const c of candidates) {
+      const headers = c.auth ? { Authorization: `Bearer ${await getToken(locationId)}`, Version: process.env.GHL_API_VERSION || '2021-07-28' } : {};
+      try {
+        const r = await fetch(c.u, { headers, redirect: 'follow' });
+        if (r.ok && r.body) { res = r; break; }
+        lastErr = new Error(`HTTP ${r.status} from ${new URL(c.u).host}`);
+      } catch (e) { lastErr = e; }
+    }
+    if (!res) throw lastErr || new Error('no download candidates');
+
+    let bytes = 0;
+    const counter = new Transform({ transform(chunk, _enc, cb) { bytes += chunk.length; cb(null, chunk); } });
 
     const filename = filenameFrom(url, res.headers, meta.originalFilename);
     const owner = meta.contactId || meta.conversationId || meta.submissionId || meta.documentId || 'unowned';
@@ -54,13 +70,13 @@ export async function ingest(jobId, locationId, url, meta = {}) {
       client: r2,
       params: {
         Bucket: BUCKET, Key: key,
-        Body: Readable.fromWeb(res.body),
+        Body: Readable.fromWeb(res.body).pipe(counter),
         ContentType: res.headers.get('content-type') || meta.mimeType || 'application/octet-stream',
         Metadata: { sourceUrl: url.slice(0, 1000), locationId, source: meta.source || '' },
       },
     });
     const result = await upload.done();
-    const size = Number(res.headers.get('content-length')) || meta.size || null;
+    const size = bytes || Number(res.headers.get('content-length')) || meta.size || null;
 
     await q(`UPDATE files SET status='done', r2_key=$2, original_filename=COALESCE(original_filename,$3),
              mime_type=COALESCE(mime_type,$4), size_bytes=COALESCE($5, size_bytes), downloaded_at=now(), error=NULL WHERE id=$1`,

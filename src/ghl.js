@@ -93,19 +93,31 @@ export function harvestUrls(value, out = []) {
   return out;
 }
 
-// GHL file-upload custom field values arrive in several shapes depending on age/endpoint:
-//   "https://.../file.pdf"
-//   ["https://...", "https://..."]
-//   { "<docId>": { url: "https://...", meta: { name, size, mimetype } } }
-// Normalise them into [{url, name, mimeType, size, docId}].
+// GHL file-upload custom field values, as actually returned by GET /contacts/{id}:
+//   { "<uuid>": { documentId, url: "https://services.leadconnectorhq.com/documents/download/<id>",   (needs bearer token)
+//                 meta: { originalname, mimetype, size, originalUrl: "https://assets.cdn.filesafe.space/..." } } }  (public CDN)
+//   signature fields: { meta, url, documentId } (no uuid wrapper, no originalUrl)
+// Older accounts may return a bare string or array of strings. Normalise to
+//   [{ url, altUrl, name, mimeType, size, docId }]  — url is the stable API link (used as the unique key),
+//   altUrl is the CDN link to try first.
 export function parseFileFieldValue(value) {
   const out = [];
   if (!value) return out;
   if (typeof value === 'string') return harvestUrls(value).map(url => ({ url }));
   if (Array.isArray(value)) return value.flatMap(parseFileFieldValue);
   if (typeof value === 'object') {
-    if (value.url) return [{ url: value.url, name: value.meta?.name || value.name, mimeType: value.meta?.mimetype || value.mimetype, size: value.meta?.size || value.size }];
-    for (const [docId, v] of Object.entries(value)) for (const f of parseFileFieldValue(v)) out.push({ docId, ...f });
+    if (value.url || value.meta?.originalUrl) {
+      const m = value.meta || {};
+      return [{
+        url: value.url || m.originalUrl,
+        altUrl: m.originalUrl && m.originalUrl !== value.url ? m.originalUrl : undefined,
+        name: m.originalname || m.filename || m.name,
+        mimeType: m.mimetype || m.mimeType,
+        size: m.size,
+        docId: value.documentId || m.uuid,
+      }];
+    }
+    for (const [docId, v] of Object.entries(value)) for (const f of parseFileFieldValue(v)) out.push({ docId: f.docId || docId, ...f });
   }
   return out;
 }

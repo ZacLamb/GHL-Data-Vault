@@ -42,11 +42,10 @@ export async function contactFields(ctx) {
     let contacts = data.contacts || [];
     if (!contacts.length) break;
 
-    // Some accounts' search results omit custom field values entirely. If a whole page has none,
-    // fetch each contact individually (slower, but complete) and remember that for the rest of the run.
-    if (fields.length && (progress.fetchIndividually || !contacts.some(c => c.customFields?.length))) {
-      progress.fetchIndividually = true;
-      contacts = await Promise.all(contacts.map(c => ghl(locationId, 'GET', `/contacts/${c.id}`).then(d => ({ ...c, ...d.contact })).catch(() => c)));
+    // POST /contacts/search omits FILE_UPLOAD fields entirely, so when the location has any,
+    // every contact is fetched individually (GET /contacts/{id} does include them).
+    if (fields.length) {
+      contacts = await Promise.all(contacts.map(c => ghl(locationId, 'GET', `/contacts/${c.id}`).then(d => ({ ...c, ...d.contact })).catch(err => { progress.getErrors = (progress.getErrors || 0) + 1; return c; })));
     }
 
     const tasks = [];
@@ -58,7 +57,7 @@ export async function contactFields(ctx) {
           progress.filesFound++; fileCount++;
           tasks.push(run(() => ingest(jobId, locationId, f.url, {
             source: 'contact_field', contactId: c.id, fieldId: def.id, fieldName: def.name,
-            originalFilename: f.name, mimeType: f.mimeType, size: f.size,
+            originalFilename: f.name, mimeType: f.mimeType, size: f.size, altUrl: f.altUrl,
           })));
         }
       }
@@ -97,7 +96,7 @@ export async function opportunityFields(ctx) {
           progress.filesFound++;
           tasks.push(run(() => ingest(jobId, locationId, f.url, {
             source: 'opportunity_field', opportunityId: o.id, contactId: o.contactId ?? o.contact?.id,
-            fieldId: def.id, fieldName: def.name, originalFilename: f.name, mimeType: f.mimeType, size: f.size,
+            fieldId: def.id, fieldName: def.name, originalFilename: f.name, mimeType: f.mimeType, size: f.size, altUrl: f.altUrl,
           })));
         }
       }
