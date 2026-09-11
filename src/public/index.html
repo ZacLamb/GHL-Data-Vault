@@ -26,6 +26,7 @@
   @keyframes blink{50%{opacity:.45}}
   button,input,select{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:2px;padding:7px 11px}
   button{cursor:pointer;transition:border-color .15s,color .15s}button:hover{border-color:var(--amber);color:var(--amber)}
+  button.danger:hover{border-color:var(--red);color:var(--red)}
   button.primary{background:var(--amber);color:#1b1608;border-color:var(--amber);font-weight:600}button.primary:hover{filter:brightness(1.08);color:#1b1608}
   a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
   .actions{display:flex;gap:8px;flex-wrap:wrap}
@@ -87,7 +88,8 @@ async function load(){
       <div>${fmtB(l.bytes)}</div>
       <div class="actions"><a href="/api/locations/${l.location_id}/manifest.csv">manifest.csv</a><a href="/api/locations/${l.location_id}/export.zip">export.zip</a></div>
       <div class="actions">${j&&['running','queued'].includes(j.status)?`<button data-cancel="${j.id}">Stop</button>`:`<button class="primary" data-run="${l.location_id}">Run export</button>`}${j&&['cancelled','failed'].includes(j.status)?`<button data-resume="${j.id}">Resume</button>`:''}${j&&Number(l.files_failed)?`<button data-retry="${j.id}">Retry failed</button>`:''}</div>
-      <div class="pkgs" id="pkgs-${l.location_id}"></div>`;
+      <div class="pkgs" id="pkgs-${l.location_id}"></div>
+      <div class="actions" style="grid-column:1/-1;justify-content:flex-end;margin-top:6px"><button class="danger" data-reset="${l.location_id}">Reset data</button><button class="danger" data-del="${l.location_id}">Delete location</button></div>`;
     box.appendChild(d);
     renderPackages(l.location_id);
   }
@@ -109,6 +111,12 @@ document.addEventListener('click',async e=>{
   if(db){if(!confirm('Release this package\'s contacts back into the pool?'))return;await api(`/api/packages/${db.dataset.dissolve}`,{method:'DELETE'});toast('Dissolved');load();return}
   const b=e.target.closest('button');if(!b)return;
   if(b.dataset.run){await api('/api/jobs',{method:'POST',body:{locationId:b.dataset.run,sources:chosen()}});toast('Queued');load()}
+  if(b.dataset.reset||b.dataset.del){
+    const loc=b.dataset.reset||b.dataset.del, del=!!b.dataset.del;
+    if(!confirm(`${del?'Delete this location and':'Reset'} all its jobs, file records, contacts and packages?`))return;
+    const purgeR2=confirm('Also delete the files already copied into R2? (Cancel = keep them)');
+    const r=await api(`/api/locations/${loc}${del?'':'/reset'}`,{method:del?'DELETE':'POST',body:{purgeR2}});
+    toast(r.error||`${del?'Deleted':'Reset'}${purgeR2?` · ${r.r2Deleted} R2 objects removed`:''}`);load();return}
   if(b.dataset.cancel){await api(`/api/jobs/${b.dataset.cancel}/cancel`,{method:'POST'});toast('Stopping after current page');load()}
   if(b.dataset.resume){await api(`/api/jobs/${b.dataset.resume}/resume`,{method:'POST'});toast('Resumed');load()}
   if(b.dataset.retry){await api(`/api/jobs/${b.dataset.retry}/retry-failed`,{method:'POST'});toast('Retry queued');load()}

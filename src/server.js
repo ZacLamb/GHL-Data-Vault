@@ -8,7 +8,7 @@ import { ALL_SOURCES } from './sources/index.js';
 import { getObjectStream } from './storage.js';
 import { ghl } from './ghl.js';
 import { createPackage, dissolvePackage, PACKAGE_SIZES } from './packager.js';
-import { listObjects } from './storage.js';
+import { listObjects, deletePrefix } from './storage.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -51,6 +51,28 @@ app.post('/api/locations', async (req, res) => {
     if (d.location?.name) await q('UPDATE locations SET name=$2 WHERE location_id=$1', [locationId, d.location.name]);
     res.json({ ok: true, name: d.location?.name });
   } catch (err) { res.json({ ok: true, warning: `saved, but token check failed: ${err.message}` }); }
+});
+
+async function resetLocation(locationId, { purgeR2 = false, dropLocation = false } = {}) {
+  const { rows: running } = await q(`SELECT 1 FROM jobs WHERE location_id=$1 AND status='running' UNION SELECT 1 FROM packages WHERE location_id=$1 AND status='running'`, [locationId]);
+  if (running.length) throw new Error('Stop the running job first');
+  let deleted = 0;
+  if (purgeR2) { deleted += await deletePrefix(`${locationId}/`); deleted += await deletePrefix(`packages/${locationId}/`); }
+  await q('DELETE FROM package_contacts WHERE location_id=$1', [locationId]);
+  await q('DELETE FROM packages WHERE location_id=$1', [locationId]);
+  await q('DELETE FROM files WHERE location_id=$1', [locationId]);
+  await q('DELETE FROM contacts WHERE location_id=$1', [locationId]);
+  await q('DELETE FROM jobs WHERE location_id=$1', [locationId]);
+  if (dropLocation) await q('DELETE FROM locations WHERE location_id=$1', [locationId]);
+  return deleted;
+}
+app.post('/api/locations/:id/reset', async (req, res) => {
+  try { res.json({ ok: true, r2Deleted: await resetLocation(req.params.id, { purgeR2: !!req.body?.purgeR2 }) }); }
+  catch (err) { res.status(409).json({ error: err.message }); }
+});
+app.delete('/api/locations/:id', async (req, res) => {
+  try { res.json({ ok: true, r2Deleted: await resetLocation(req.params.id, { purgeR2: !!req.body?.purgeR2, dropLocation: true }) }); }
+  catch (err) { res.status(409).json({ error: err.message }); }
 });
 
 // Bulk-import every sub-account under the agency (requires GHL_AGENCY_ACCESS_TOKEN + GHL_COMPANY_ID).

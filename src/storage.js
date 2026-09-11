@@ -1,4 +1,4 @@
-import { S3Client, GetObjectCommand, ListObjectsV2Command, CopyObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, ListObjectsV2Command, CopyObjectCommand, PutObjectCommand, DeleteObjectsCommand } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { Readable } from 'node:stream';
 import { q } from './db.js';
@@ -98,4 +98,12 @@ export async function copyObject(fromKey, toKey) {
 }
 export async function putText(key, body, contentType = 'text/csv') {
   await r2.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: body, ContentType: contentType }));
+}
+
+export async function deletePrefix(prefix) {
+  let batch = [], n = 0;
+  const flush = async () => { if (!batch.length) return; await r2.send(new DeleteObjectsCommand({ Bucket: BUCKET, Delete: { Objects: batch } })); n += batch.length; batch = []; };
+  for await (const o of listObjects(prefix)) { batch.push({ Key: o.Key }); if (batch.length === 1000) await flush(); }
+  await flush();
+  return n;
 }
