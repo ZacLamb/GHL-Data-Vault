@@ -48,13 +48,18 @@ export async function ingest(jobId, locationId, url, meta = {}) {
     candidates.push({ u: url, auth: meta.authenticated || isApi(url) });
 
     let res, lastErr;
-    for (const c of candidates) {
+    outer: for (const c of candidates) {
       const headers = c.auth ? { Authorization: `Bearer ${await getToken(locationId)}`, Version: process.env.GHL_API_VERSION || '2021-07-28' } : {};
-      try {
-        const r = await fetch(c.u, { headers, redirect: 'follow' });
-        if (r.ok && r.body) { res = r; break; }
-        lastErr = new Error(`HTTP ${r.status} from ${new URL(c.u).host}`);
-      } catch (e) { lastErr = e; }
+      // Connection-level errors (reset, DNS, timeout) get 3 attempts with backoff; HTTP errors fall through to the next candidate.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const r = await fetch(c.u, { headers, redirect: 'follow', signal: AbortSignal.timeout(5 * 60_000) });
+          if (r.ok && r.body) { res = r; break outer; }
+          lastErr = new Error(`HTTP ${r.status} from ${new URL(c.u).host}`);
+          if (r.status < 500 && r.status !== 429) break;          // 4xx: don't retry this candidate
+        } catch (e) { lastErr = new Error(`${e.cause?.code || e.name || 'fetch failed'}: ${e.message}`); }
+        await new Promise(r => setTimeout(r, 1500 * 2 ** attempt));
+      }
     }
     if (!res) {
       // Recording endpoint answers 422 when the call has no recording: that's "nothing to fetch", not a failure.
