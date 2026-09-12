@@ -12,9 +12,9 @@ async function upsertContact(locationId, c, fileFieldIds, nameById, fileCount) {
            ON CONFLICT (location_id, contact_id) DO UPDATE SET first_name=EXCLUDED.first_name, last_name=EXCLUDED.last_name,
              email=EXCLUDED.email, phone=EXCLUDED.phone, company=EXCLUDED.company, address=EXCLUDED.address, city=EXCLUDED.city,
              state=EXCLUDED.state, postal_code=EXCLUDED.postal_code, tags=EXCLUDED.tags, date_added=EXCLUDED.date_added,
-             custom=EXCLUDED.custom, file_count=EXCLUDED.file_count, updated_at=now()`,
+             custom=EXCLUDED.custom, file_count=COALESCE(EXCLUDED.file_count, contacts.file_count), updated_at=now()`,
     [locationId, c.id, c.firstName, c.lastName, c.email, c.phone, c.companyName, c.address1, c.city, c.state, c.postalCode,
-     c.tags || [], c.dateAdded ? new Date(c.dateAdded) : null, custom, fileCount]);
+     c.tags || [], c.dateAdded ? new Date(c.dateAdded) : null, custom, fileCount ?? 0]);
 }
 
 async function fileFields(locationId, model) {
@@ -29,24 +29,50 @@ export async function contactFields(ctx) {
   const fileFieldIds = new Set(fields.map(f => f.id));
   const allDefs = (await ghl(locationId, 'GET', `/locations/${locationId}/customFields`, { query: { model: 'contact' } })).customFields || [];
   const nameById = Object.fromEntries(allDefs.map(f => [f.id, f.name]));
-  if (!fields.length) progress.note = 'no file fields — contact records still captured';
-
   const run = limiter();
-  let searchAfter = progress.searchAfter || undefined;
-  progress.contactsSeen ??= 0; progress.filesFound ??= 0;
+  progress.contactsSeen ??= 0; progress.filesFound ??= 0; progress.candidates ??= 0; progress.fetched ??= 0;
 
-  while (true) {
-    const data = await ghl(locationId, 'POST', '/contacts/search', {
-      body: { locationId, pageLimit: 100, ...(searchAfter ? { searchAfter } : {}) },
-    });
-    let contacts = data.contacts || [];
-    if (!contacts.length) break;
-
-    // POST /contacts/search omits FILE_UPLOAD fields entirely, so when the location has any,
-    // every contact is fetched individually (GET /contacts/{id} does include them).
-    if (fields.length) {
-      contacts = await Promise.all(contacts.map(c => ghl(locationId, 'GET', `/contacts/${c.id}`).then(d => ({ ...c, ...d.contact })).catch(err => { progress.getErrors = (progress.getErrors || 0) + 1; return c; })));
+  // ---- Pass 1: every contact record, straight from search (fast; file fields are omitted by search) ----
+  if (!progress.pass1Done) {
+    let searchAfter = progress.searchAfter || undefined;
+    while (true) {
+      const data = await ghl(locationId, 'POST', '/contacts/search', { body: { locationId, pageLimit: 100, ...(searchAfter ? { searchAfter } : {}) } });
+      const contacts = data.contacts || [];
+      if (!contacts.length) break;
+      await Promise.all(contacts.map(c => upsertContact(locationId, c, fileFieldIds, nameById, null)));
+      progress.contactsSeen += contacts.length;
+      searchAfter = contacts[contacts.length - 1].searchAfter;
+      progress.searchAfter = searchAfter;
+      await save();
+      if (!searchAfter || contacts.length < 100) break;
     }
+    progress.pass1Done = true; delete progress.searchAfter; await save();
+  }
+  if (!fields.length) { progress.note = 'no file fields on this location'; return; }
+
+  // ---- Pass 2: only contacts with at least one file field populated (search "exists" filter), fetched individually ----
+  // Falls back to scanning every contact if the filter is rejected.
+  const existsFilter = { group: 'OR', filters: fields.map(f => ({ field: `customFields.${f.id}`, operator: 'exists' })) };
+  if (progress.mode == null) {
+    try {
+      const probe = await ghl(locationId, 'POST', '/contacts/search', { body: { locationId, pageLimit: 1, filters: [existsFilter] } });
+      progress.mode = 'filtered'; progress.candidatesTotal = probe.total ?? null;
+    } catch (err) { progress.mode = 'full'; progress.note = `exists filter rejected (${err.message.slice(0, 120)}); scanning every contact`; }
+    await save();
+  }
+
+  let searchAfter = progress.searchAfter2 || undefined;
+  while (true) {
+    const body = { locationId, pageLimit: 100, ...(searchAfter ? { searchAfter } : {}) };
+    if (progress.mode === 'filtered') body.filters = [existsFilter];
+    const data = await ghl(locationId, 'POST', '/contacts/search', { body });
+    const page = data.contacts || [];
+    if (!page.length) break;
+    progress.candidates += page.length;
+
+    // GET /contacts/{id} is the only call that returns FILE_UPLOAD values.
+    const contacts = await Promise.all(page.map(c => ghl(locationId, 'GET', `/contacts/${c.id}`).then(d => { progress.fetched++; return { ...c, ...d.contact }; })
+      .catch(() => { progress.getErrors = (progress.getErrors || 0) + 1; return c; })));
 
     const tasks = [];
     for (const c of contacts) {
@@ -64,11 +90,10 @@ export async function contactFields(ctx) {
       tasks.push(upsertContact(locationId, c, fileFieldIds, nameById, fileCount));
     }
     await Promise.all(tasks);
-    progress.contactsSeen += contacts.length;
-    searchAfter = contacts[contacts.length - 1].searchAfter;
-    progress.searchAfter = searchAfter;
+    searchAfter = page[page.length - 1].searchAfter;
+    progress.searchAfter2 = searchAfter;
     await save();
-    if (!searchAfter || contacts.length < 100) break;
+    if (!searchAfter || page.length < 100) break;
   }
 }
 

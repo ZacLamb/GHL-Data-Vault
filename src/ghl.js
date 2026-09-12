@@ -2,7 +2,7 @@ import { q } from './db.js';
 
 const BASE = 'https://services.leadconnectorhq.com';
 const VERSION = process.env.GHL_API_VERSION || '2021-07-28';
-const MAX_PER_10S = Number(process.env.GHL_MAX_REQ_PER_10S || 80);
+const MAX_PER_10S = Number(process.env.GHL_MAX_REQ_PER_10S || 95);
 
 // --- per-location sliding-window rate limiter ---------------------------------
 const windows = new Map(); // locationId -> [timestamps]

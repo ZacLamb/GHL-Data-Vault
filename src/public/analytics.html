@@ -43,6 +43,8 @@
   .pager{display:flex;gap:10px;align-items:center;justify-content:flex-end;margin-top:10px;color:var(--dim)}
   .toast{position:fixed;right:24px;bottom:24px;background:var(--panel);border:1px solid var(--amber);padding:12px 16px;border-radius:3px;opacity:0;transform:translateY(8px);transition:.25s}.toast.show{opacity:1;transform:none}
   .tableWrap{overflow-x:auto}
+  .checks{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--ink)}
+  .checks label{flex-direction:row;align-items:center;gap:5px;text-transform:none;letter-spacing:0;font-size:12px;color:var(--ink);cursor:pointer}
 </style>
 </head>
 <body>
@@ -87,6 +89,26 @@
     </div>
   </div>
 
+  <h2>Package contents <span class="id">— what goes into contacts.csv and which documents are copied</span></h2>
+  <div class="card">
+    <div class="grid">
+      <div><h3 style="margin:0 0 8px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">Contact columns <a href="#" data-all="cols" class="id">all</a> · <a href="#" data-none="cols" class="id">none</a></h3><div id="cols" class="checks"></div></div>
+      <div><h3 style="margin:0 0 8px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">Custom field columns <a href="#" data-all="ccols" class="id">all</a> · <a href="#" data-none="ccols" class="id">none</a></h3><div id="ccols" class="checks"></div></div>
+      <div><h3 style="margin:0 0 8px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">Documents to include <a href="#" data-all="docs" class="id">all</a> · <a href="#" data-none="docs" class="id">none</a></h3><div id="docs" class="checks"></div></div>
+    </div>
+    <div class="filters" style="margin-top:14px">
+      <label>Folder naming<select id="folderPreset">
+        <option value="{Contact Id}">Contact Id</option>
+        <option value="{Company Name}">Company Name</option>
+        <option value="{Last Name}, {First Name}">Last Name, First Name</option>
+        <option value="{Company Name} - {First Name} {Last Name}">Company - First Last</option>
+        <option value="custom">Custom template…</option>
+      </select></label>
+      <label style="grid-column:span 2">Custom template (use {Standard Column} or {Custom Field Name}; blanks drop out, duplicates get the contact id appended)<input id="folderCustom" placeholder="{State} - {Company Name} - {Last Name}" disabled></label>
+    </div>
+    <div class="id" style="margin-top:8px">Contact Id is always included in contacts.csv (plus a Folder column) so manifest.csv joins regardless of folder naming.</div>
+  </div>
+
   <div class="card" style="margin-top:14px">
     <div class="tableWrap"><table><thead><tr><th>Contact</th><th>Company</th><th>State</th><th>Docs</th><th>Fields</th><th>Tags</th><th>Added</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
     <div class="pager"><button id="prev">‹</button><span id="pageInfo"></span><button id="next">›</button></div>
@@ -126,6 +148,8 @@ async function loadAnalytics(){
   bars($('#months'),a.months,'contacts',k=>{$('#addedFrom').value=k+'-01';const d=new Date(k+'-01T00:00:00Z');d.setUTCMonth(d.getUTCMonth()+1);d.setUTCDate(0);$('#addedTo').value=d.toISOString().slice(0,10);run()});
   bars($('#sources'),a.sources,'files');
   fillSelect($('#fields_sel'),a.fields.map(f=>f.key));fillSelect($('#notFields_sel'),a.fields.map(f=>f.key));
+  const checks=(el,items)=>{el.innerHTML=items.map(i=>`<label><input type="checkbox" value="${String(i).replace(/"/g,'&quot;')}" checked> ${i}</label>`).join('')||'<span class="id">none yet</span>'};
+  checks($('#ccols'),a.customKeys);checks($('#docs'),a.fields.map(f=>f.key));
   fillSelect($('#tags_sel'),a.tags.map(f=>f.key));fillSelect($('#states_sel'),a.states.map(f=>f.key));
   $('#customKey').innerHTML='<option value="">—</option>'+a.customKeys.map(k=>`<option>${k}</option>`).join('');
 }
@@ -147,8 +171,15 @@ $('#prev').onclick=()=>run(page-1);$('#next').onclick=()=>run(page+1);
 $('#csv').onclick=async()=>{const r=await fetch(`/api/locations/${loc}/search.csv`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filters:filters()})});
   const a=document.createElement('a');a.href=URL.createObjectURL(await r.blob());a.download=`${loc}-filtered.csv`;a.click()};
 $('#pkg').onclick=async()=>{const size=Number($('#pkgSize').value);if(!confirm(`Create a package of ${N(size)} random contacts from the current filter?`))return;
-  const r=await api(`/api/locations/${loc}/packages`,{method:'POST',body:{size,filters:filters(),label:'filtered'}});toast(r.error||`Package #${r.id} queued with ${N(r.contact_count)} contacts`);loadAnalytics();run(page)};
-api(`/api/locations/${loc}/pool`).then(p=>{$('#pkgSize').innerHTML=p.sizes.map(s=>`<option value="${s}">${s>=1000?s/1000+'k':s}</option>`).join('')});
+  const r=await api(`/api/locations/${loc}/packages`,{method:'POST',body:{size,filters:filters(),label:'filtered',columns:columns(),fileFields:checked('docs'),folderTemplate:folderTemplate()}});toast(r.error||`Package #${r.id} queued with ${N(r.contact_count)} contacts`);loadAnalytics();run(page)};
+api(`/api/locations/${loc}/pool`).then(p=>{$('#pkgSize').innerHTML=p.sizes.map(s=>`<option value="${s}">${s>=1000?s/1000+'k':s}</option>`).join('');
+  $('#cols').innerHTML=p.standardColumns.map(i=>`<label><input type="checkbox" value="${i}" checked> ${i}</label>`).join('')});
+document.addEventListener('click',e=>{const a=e.target.closest('a[data-all],a[data-none]');if(!a)return;e.preventDefault();
+  const on=!!a.dataset.all;document.querySelectorAll(`#${a.dataset.all||a.dataset.none} input`).forEach(i=>i.checked=on)});
+const checked=id=>[...document.querySelectorAll(`#${id} input:checked`)].map(i=>i.value);
+const columns=()=>[...checked('cols'),...checked('ccols')];
+$('#folderPreset').onchange=()=>{$('#folderCustom').disabled=$('#folderPreset').value!=='custom'};
+const folderTemplate=()=>$('#folderPreset').value==='custom'?($('#folderCustom').value.trim()||'{Contact Id}'):$('#folderPreset').value;
 loadAnalytics();run(1);
 </script>
 </body>

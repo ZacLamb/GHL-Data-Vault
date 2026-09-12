@@ -7,7 +7,7 @@ import { startWorker } from './runner.js';
 import { ALL_SOURCES } from './sources/index.js';
 import { getObjectStream } from './storage.js';
 import { ghl, parseFileFieldValue } from './ghl.js';
-import { createPackage, dissolvePackage, PACKAGE_SIZES } from './packager.js';
+import { createPackage, dissolvePackage, PACKAGE_SIZES, STANDARD_COLUMNS } from './packager.js';
 import { listObjects, deletePrefix } from './storage.js';
 import { summary, breakdowns, search, searchAll } from './analytics.js';
 
@@ -158,13 +158,13 @@ app.get('/api/locations/:id/pool', async (req, res) => {
   const { rows: [r] } = await q(`
     SELECT (SELECT count(*) FROM contacts WHERE location_id=$1) AS total,
            (SELECT count(*) FROM package_contacts WHERE location_id=$1) AS assigned`, [req.params.id]);
-  res.json({ total: Number(r.total), assigned: Number(r.assigned), available: Number(r.total) - Number(r.assigned), sizes: PACKAGE_SIZES });
+  res.json({ total: Number(r.total), assigned: Number(r.assigned), available: Number(r.total) - Number(r.assigned), sizes: PACKAGE_SIZES, standardColumns: STANDARD_COLUMNS });
 });
 
 app.post('/api/locations/:id/packages', async (req, res) => {
   const size = Number(req.body?.size);
   if (!PACKAGE_SIZES.includes(size)) return res.status(400).json({ error: `size must be one of ${PACKAGE_SIZES.join(', ')}` });
-  const pkg = await createPackage(req.params.id, size, req.body?.label, req.body?.filters || {});
+  const pkg = await createPackage(req.params.id, size, req.body?.label, { filters: req.body?.filters || {}, columns: req.body?.columns || null, fileFields: req.body?.fileFields || null, folderTemplate: req.body?.folderTemplate || null });
   if (!pkg.contact_count) { await dissolvePackage(pkg.id); return res.status(409).json({ error: 'No unassigned contacts left in this location' }); }
   res.json(pkg);
 });

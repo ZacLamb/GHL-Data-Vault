@@ -79,7 +79,14 @@ async function load(){
   const locs=await api('/api/locations');const box=$('#rows');box.innerHTML='';
   if(!locs.length){box.innerHTML='<div class="row"><div class="id">No locations yet — add one above or import the agency.</div></div>';return}
   for(const l of locs){
-    const j=l.last_job;const prog=j?Object.entries(j.progress||{}).map(([k,v])=>`${k}: ${v.status||'…'} ${v.filesFound!=null?`(${v.filesFound} found)`:''} ${v.error?'✗ '+v.error:''}${v.note?' · '+v.note:''}`).join('\n'):'';
+    const j=l.last_job;
+    const cf=j?.progress?.contact_fields;let live='';
+    if(cf&&j.status==='running'){
+      if(cf.phase==='A')live=`A · reading contacts ${Number(cf.contactsSeen||0).toLocaleString()}${cf.total?' / '+Number(cf.total).toLocaleString():''}`;
+      else if(cf.phase==='B'){const left=(cf.candidates||0)-(cf.fetched||0);const eta=cf.ratePerMin?Math.ceil(left/cf.ratePerMin):null;
+        live=`B · ${Number(cf.fetched||0).toLocaleString()} / ${Number(cf.candidates||0).toLocaleString()} contacts with docs · ${Number(cf.filesFound||0).toLocaleString()} files${cf.ratePerMin?` · ${cf.ratePerMin}/min`:''}${eta!=null?` · ~${eta} min left`:''}`}
+    }
+    const prog=j?Object.entries(j.progress||{}).map(([k,v])=>`${k}: ${v.status||'…'}${v.contactsSeen!=null?` · ${v.contactsSeen.toLocaleString()} contacts read`:''}${v.candidatesTotal!=null?` · ${v.candidatesTotal.toLocaleString()} with docs`:''}${v.fetched!=null?` · ${v.fetched.toLocaleString()} fetched`:''}${v.filesFound!=null?` · ${v.filesFound.toLocaleString()} files found`:''}${v.mode?` · mode=${v.mode}`:''} ${v.error?'✗ '+v.error:''}${v.note?' · '+v.note:''}`).join('\n'):'';
     const d=document.createElement('div');d.className='row';
     d.innerHTML=`
       <div><div class="name">${l.name||'(unnamed)'}</div><div class="id">${l.location_id} ${l.has_pit?'· PIT':'· agency'}</div></div>
