@@ -2,7 +2,8 @@ import { q } from './db.js';
 import { SOURCES } from './sources/index.js';
 import { buildPackage } from './packager.js';
 
-let running = false;
+const MAX = Number(process.env.MAX_CONCURRENT_JOBS || 3);
+const active = new Map(); // locationId -> Promise (one job or package per location at a time)
 
 export async function runJob(job) {
   const progress = job.progress || {};
@@ -37,24 +38,39 @@ export async function runJob(job) {
     [job.id, failed ? 'failed' : 'done', progress]);
 }
 
-// Simple in-process worker. One job at a time keeps us well inside GHL rate limits;
-// bump to a pool if you want parallel locations.
+function launch(locationId, fn) {
+  const p = fn().catch(err => console.error(`[worker ${locationId}]`, err)).finally(() => active.delete(locationId));
+  active.set(locationId, p);
+}
+
+// Pick up work for locations that aren't already busy. Rate limits are per sub-account,
+// so different locations run in parallel; within a location, exports and packages stay sequential.
 export async function tick() {
-  if (running) return;
-  running = true;
   try {
-    // On boot, anything left 'running' from a previous container is resumed from its saved cursors.
-    const { rows } = await q(`SELECT * FROM jobs WHERE status IN ('queued','running') ORDER BY status DESC, id ASC LIMIT 1`);
-    if (rows[0]) { await runJob(rows[0]); return; }
-    const { rows: pkgs } = await q(`SELECT * FROM packages WHERE status IN ('queued','running') ORDER BY status DESC, id ASC LIMIT 1`);
-    if (pkgs[0]) {
-      try { await buildPackage(pkgs[0]); }
-      catch (err) { console.error(`[package ${pkgs[0].id}]`, err); await q(`UPDATE packages SET status='failed', error=$2 WHERE id=$1`, [pkgs[0].id, String(err.message).slice(0, 500)]); }
+    if (active.size >= MAX) return;
+    const busy = [...active.keys()];
+    const { rows: jobs } = await q(
+      `SELECT * FROM jobs WHERE status IN ('queued','running') AND NOT (location_id = ANY($1::text[]))
+       ORDER BY status DESC, id ASC`, [busy]);
+    for (const job of jobs) {
+      if (active.size >= MAX) return;
+      if (active.has(job.location_id)) continue;
+      launch(job.location_id, () => runJob(job));
+    }
+    if (active.size >= MAX) return;
+    const { rows: pkgs } = await q(
+      `SELECT * FROM packages WHERE status IN ('queued','running') AND NOT (location_id = ANY($1::text[]))
+       ORDER BY status DESC, id ASC`, [[...active.keys()]]);
+    for (const pkg of pkgs) {
+      if (active.size >= MAX) return;
+      if (active.has(pkg.location_id)) continue;
+      launch(pkg.location_id, async () => {
+        try { await buildPackage(pkg); }
+        catch (err) { await q(`UPDATE packages SET status='failed', error=$2 WHERE id=$1`, [pkg.id, String(err.message).slice(0, 500)]); throw err; }
+      });
     }
   } catch (err) {
     console.error('runner error', err);
-  } finally {
-    running = false;
   }
 }
 
