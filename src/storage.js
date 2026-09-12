@@ -56,7 +56,14 @@ export async function ingest(jobId, locationId, url, meta = {}) {
         lastErr = new Error(`HTTP ${r.status} from ${new URL(c.u).host}`);
       } catch (e) { lastErr = e; }
     }
-    if (!res) throw lastErr || new Error('no download candidates');
+    if (!res) {
+      // Recording endpoint answers 422 when the call has no recording: that's "nothing to fetch", not a failure.
+      if (meta.source === 'recording' && /HTTP 422/.test(lastErr?.message || '')) {
+        await q(`UPDATE files SET status='skipped', error='no recording' WHERE id=$1`, [existing.id]);
+        return { ...existing, status: 'skipped' };
+      }
+      throw lastErr || new Error('no download candidates');
+    }
 
     let bytes = 0;
     const counter = new Transform({ transform(chunk, _enc, cb) { bytes += chunk.length; cb(null, chunk); } });

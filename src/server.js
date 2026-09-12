@@ -250,7 +250,8 @@ app.get('/api/locations/:id/failures', async (req, res) => {
     SELECT error, count(*) AS n, min(source_url) AS sample_url, min(source) AS source, min(field_name) AS field_name
     FROM files WHERE location_id=$1 AND status='failed' GROUP BY error ORDER BY n DESC LIMIT 30`, [req.params.id]);
   const { rows: sizes } = await q(`SELECT count(*) AS done, count(*) FILTER (WHERE size_bytes IS NULL) AS no_size, min(r2_key) AS sample_key FROM files WHERE location_id=$1 AND status='done'`, [req.params.id]);
-  res.json({ failures: rows.map(r => ({ ...r, n: Number(r.n) })), done: sizes[0] });
+  const { rows: [sk] } = await q(`SELECT count(*) AS skipped FROM files WHERE location_id=$1 AND status='skipped'`, [req.params.id]);
+  res.json({ failures: rows.map(r => ({ ...r, n: Number(r.n) })), done: sizes[0], skipped_no_recording: Number(sk.skipped) });
 });
 
 app.get('/api/sources', (_req, res) => res.json(ALL_SOURCES));

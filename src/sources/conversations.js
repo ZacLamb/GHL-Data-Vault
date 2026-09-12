@@ -33,8 +33,10 @@ export async function conversations(ctx) {
               source: 'conversation', conversationId: conv.id, messageId: m.id, contactId: conv.contactId,
             })));
           }
-          if (CALL_TYPES.has(m.messageType) || CALL_TYPES.has(m.type)) {
+          const dur = Number(m.meta?.call?.duration ?? m.meta?.duration ?? 0);
+          if ((CALL_TYPES.has(m.messageType) || CALL_TYPES.has(m.type)) && dur > 0) {
             // Recording endpoint returns the audio bytes and needs the bearer token.
+            // Calls with no duration (missed, failed, <1s) have no recording and return 422.
             const recUrl = `${BASE}/conversations/messages/${m.id}/locations/${locationId}/recording`;
             progress.filesFound++;
             tasks.push(run(() => ingest(jobId, locationId, recUrl, {

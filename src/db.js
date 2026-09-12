@@ -99,4 +99,6 @@ export async function migrate() {
     );
     CREATE INDEX IF NOT EXISTS files_job ON files(job_id);
   `);
+  // One-time cleanup: recordings that 422'd are calls with no recording, not failures.
+  await q(`UPDATE files SET status='skipped', error='no recording' WHERE source='recording' AND status='failed' AND error LIKE 'HTTP 422%'`);
 }
