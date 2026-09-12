@@ -23,7 +23,10 @@ async function fileFields(locationId, model) {
 }
 
 export async function contactFields(ctx) {
-  const { jobId, locationId, progress, save } = ctx;
+  const { jobId, locationId, progress, save, since } = ctx;
+  // Incremental runs: only contacts updated since the last export.
+  const sinceFilter = since ? [{ field: 'dateUpdated', operator: 'range', value: { gte: since } }] : [];
+  if (since) progress.since = since;
   const fields = await fileFields(locationId, 'contact');
   const byId = Object.fromEntries(fields.map(f => [f.id, f]));
   const fileFieldIds = new Set(fields.map(f => f.id));
@@ -36,7 +39,7 @@ export async function contactFields(ctx) {
   if (!progress.pass1Done) {
     let searchAfter = progress.searchAfter || undefined;
     while (true) {
-      const data = await ghl(locationId, 'POST', '/contacts/search', { body: { locationId, pageLimit: 100, ...(searchAfter ? { searchAfter } : {}) } });
+      const data = await ghl(locationId, 'POST', '/contacts/search', { body: { locationId, pageLimit: 100, ...(sinceFilter.length ? { filters: sinceFilter } : {}), ...(searchAfter ? { searchAfter } : {}) } });
       const contacts = data.contacts || [];
       if (!contacts.length) break;
       await Promise.all(contacts.map(c => upsertContact(locationId, c, fileFieldIds, nameById, null)));
@@ -55,7 +58,7 @@ export async function contactFields(ctx) {
   const existsFilter = { group: 'OR', filters: fields.map(f => ({ field: `customFields.${f.id}`, operator: 'exists' })) };
   if (progress.mode == null) {
     try {
-      const probe = await ghl(locationId, 'POST', '/contacts/search', { body: { locationId, pageLimit: 1, filters: [existsFilter] } });
+      const probe = await ghl(locationId, 'POST', '/contacts/search', { body: { locationId, pageLimit: 1, filters: [...sinceFilter, existsFilter] } });
       progress.mode = 'filtered'; progress.candidatesTotal = probe.total ?? null;
     } catch (err) { progress.mode = 'full'; progress.note = `exists filter rejected (${err.message.slice(0, 120)}); scanning every contact`; }
     await save();
@@ -64,7 +67,8 @@ export async function contactFields(ctx) {
   let searchAfter = progress.searchAfter2 || undefined;
   while (true) {
     const body = { locationId, pageLimit: 100, ...(searchAfter ? { searchAfter } : {}) };
-    if (progress.mode === 'filtered') body.filters = [existsFilter];
+    body.filters = [...sinceFilter, ...(progress.mode === 'filtered' ? [existsFilter] : [])];
+    if (!body.filters.length) delete body.filters;
     const data = await ghl(locationId, 'POST', '/contacts/search', { body });
     const page = data.contacts || [];
     if (!page.length) break;

@@ -35,7 +35,7 @@ app.get('/api/locations', async (_req, res) => {
            (SELECT count(*) FROM files f WHERE f.location_id=l.location_id AND f.status='done')   AS files_done,
            (SELECT count(*) FROM files f WHERE f.location_id=l.location_id AND f.status='failed') AS files_failed,
            (SELECT coalesce(sum(size_bytes),0) FROM files f WHERE f.location_id=l.location_id AND f.status='done') AS bytes,
-           (SELECT row_to_json(j) FROM (SELECT id,status,sources,progress,created_at,finished_at FROM jobs WHERE location_id=l.location_id ORDER BY id DESC LIMIT 1) j) AS last_job
+           (SELECT row_to_json(j) FROM (SELECT id,status,sources,progress,since,created_at,finished_at FROM jobs WHERE location_id=l.location_id ORDER BY id DESC LIMIT 1) j) AS last_job
     FROM locations l ORDER BY l.name NULLS LAST, l.location_id`);
   res.json(rows);
 });
@@ -98,9 +98,15 @@ app.post('/api/locations/import-agency', async (_req, res) => {
 
 // --- jobs -----------------------------------------------------------------------------
 app.post('/api/jobs', async (req, res) => {
-  const { locationId, sources } = req.body || {};
+  const { locationId, sources, incremental } = req.body || {};
   const chosen = (sources?.length ? sources : ALL_SOURCES).filter(s => ALL_SOURCES.includes(s));
-  const { rows: [job] } = await q(`INSERT INTO jobs (location_id, sources) VALUES ($1,$2) RETURNING *`, [locationId, chosen]);
+  let since = null;
+  if (incremental) {
+    const { rows: [last] } = await q(`SELECT started_at FROM jobs WHERE location_id=$1 AND status='done' ORDER BY id DESC LIMIT 1`, [locationId]);
+    if (!last) return res.status(409).json({ error: 'No completed export yet — run a full export first' });
+    since = new Date(new Date(last.started_at).getTime() - 60 * 60_000); // 1h overlap
+  }
+  const { rows: [job] } = await q(`INSERT INTO jobs (location_id, sources, since) VALUES ($1,$2,$3) RETURNING *`, [locationId, chosen, since]);
   res.json(job);
 });
 app.get('/api/jobs', async (req, res) => {

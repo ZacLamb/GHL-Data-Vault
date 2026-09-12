@@ -90,11 +90,11 @@ async function load(){
     const d=document.createElement('div');d.className='row';
     d.innerHTML=`
       <div><div class="name">${l.name||'(unnamed)'}</div><div class="id">${l.location_id} ${l.has_pit?'· PIT':'· agency'}</div></div>
-      <div>${j?`<span class="pill ${j.status}">${j.status}</span> <span class="id">#${j.id} ${fmtD(j.finished_at||j.created_at)}</span>${prog?`<details><summary>progress</summary><pre>${prog}</pre></details>`:''}`:'<span class="id">never run</span>'}</div>
+      <div>${j?`<span class="pill ${j.status}">${j.status}</span> <span class="id">#${j.id}${j.since?' sync':''} ${fmtD(j.finished_at||j.created_at)}</span>${prog?`<details><summary>progress</summary><pre>${prog}</pre></details>`:''}`:'<span class="id">never run</span>'}</div>
       <div class="stat"><b>${l.files_done}</b> done${Number(l.files_failed)?` · <span class="f">${l.files_failed} failed</span>`:''}</div>
       <div>${fmtB(l.bytes)}</div>
       <div class="actions"><a href="/analytics.html?loc=${l.location_id}" style="color:var(--amber)">analytics →</a><a href="/api/locations/${l.location_id}/manifest.csv">manifest.csv</a><a href="/api/locations/${l.location_id}/export.zip">export.zip</a></div>
-      <div class="actions">${j&&['running','queued'].includes(j.status)?`<button data-cancel="${j.id}">Stop</button>`:`<button class="primary" data-run="${l.location_id}">Run export</button>`}${j&&['cancelled','failed'].includes(j.status)?`<button data-resume="${j.id}">Resume</button>`:''}${j&&Number(l.files_failed)?`<button data-retry="${j.id}">Retry failed</button>`:''}</div>
+      <div class="actions">${j&&['running','queued'].includes(j.status)?`<button data-cancel="${j.id}">Stop</button>`:`<button class="primary" data-run="${l.location_id}">Run export</button>${j&&j.status==='done'?`<button data-sync="${l.location_id}" title="Only contacts updated since the last completed export">Sync new</button>`:''}`}${j&&['cancelled','failed'].includes(j.status)?`<button data-resume="${j.id}">Resume</button>`:''}${j&&Number(l.files_failed)?`<button data-retry="${j.id}">Retry failed</button>`:''}</div>
       <div class="pkgs" id="pkgs-${l.location_id}"></div>
       <div class="actions" style="grid-column:1/-1;justify-content:flex-end;margin-top:6px"><button class="danger" data-reset="${l.location_id}">Reset data</button><button class="danger" data-del="${l.location_id}">Delete location</button></div>`;
     box.appendChild(d);
@@ -124,6 +124,7 @@ document.addEventListener('click',async e=>{
     const purgeR2=confirm('Also delete the files already copied into R2? (Cancel = keep them)');
     const r=await api(`/api/locations/${loc}${del?'':'/reset'}`,{method:del?'DELETE':'POST',body:{purgeR2}});
     toast(r.error||`${del?'Deleted':'Reset'}${purgeR2?` · ${r.r2Deleted} R2 objects removed`:''}`);load();return}
+  if(b.dataset.sync){const r=await api('/api/jobs',{method:'POST',body:{locationId:b.dataset.sync,sources:chosen(),incremental:true}});toast(r.error||`Sync queued (since ${new Date(r.since).toLocaleString()})`);load()}
   if(b.dataset.cancel){await api(`/api/jobs/${b.dataset.cancel}/cancel`,{method:'POST'});toast('Stopping after current page');load()}
   if(b.dataset.resume){await api(`/api/jobs/${b.dataset.resume}/resume`,{method:'POST'});toast('Resumed');load()}
   if(b.dataset.retry){await api(`/api/jobs/${b.dataset.retry}/retry-failed`,{method:'POST'});toast('Retry queued');load()}

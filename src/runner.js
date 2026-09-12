@@ -21,7 +21,7 @@ export async function runJob(job) {
       if (cur.status === 'cancelled') throw Object.assign(new Error('cancelled'), { cancelled: true });
     };
     try {
-      await crawl({ jobId: job.id, locationId: job.location_id, progress: progress[name], save });
+      await crawl({ jobId: job.id, locationId: job.location_id, progress: progress[name], save, since: job.since ? new Date(job.since).toISOString() : null });
       progress[name].status = 'done';
     } catch (err) {
       if (err.cancelled) { progress[name].status = 'paused'; await q('UPDATE jobs SET progress=$2 WHERE id=$1', [job.id, progress]); return; }

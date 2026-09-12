@@ -57,6 +57,7 @@ export async function migrate() {
       created_at        TIMESTAMPTZ DEFAULT now(),
       UNIQUE (location_id, source_url)     -- idempotent re-runs
     );
+    ALTER TABLE jobs ADD COLUMN IF NOT EXISTS since TIMESTAMPTZ;   -- incremental: only contacts updated after this
     CREATE INDEX IF NOT EXISTS files_loc_status ON files(location_id, status);
     CREATE INDEX IF NOT EXISTS files_contact ON files(location_id, contact_id);
 
