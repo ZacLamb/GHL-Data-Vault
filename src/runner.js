@@ -1,6 +1,7 @@
 import { q } from './db.js';
 import { SOURCES } from './sources/index.js';
 import { buildPackage } from './packager.js';
+import { buildBundle } from './bundler.js';
 
 const MAX = Number(process.env.MAX_CONCURRENT_JOBS || 3);
 const active = new Map(); // locationId -> Promise (one job or package per location at a time)
@@ -68,6 +69,15 @@ export async function tick() {
         try { await buildPackage(pkg); }
         catch (err) { await q(`UPDATE packages SET status='failed', error=$2 WHERE id=$1`, [pkg.id, String(err.message).slice(0, 500)]); throw err; }
       });
+    }
+    // zip bundles: independent of GHL, keyed as 'bundle:<id>' so they can run beside a crawl for the same location
+    if (active.size >= MAX) return;
+    const { rows: bundles } = await q(`SELECT * FROM bundles WHERE status='queued' ORDER BY id ASC LIMIT 5`);
+    for (const b of bundles) {
+      if (active.size >= MAX) return;
+      const slot = `bundle:${b.id}`;
+      if (active.has(slot)) continue;
+      launch(slot, () => buildBundle(b));
     }
   } catch (err) {
     // DB unreachable: one short line, try again next tick (no stack traces every 5s).

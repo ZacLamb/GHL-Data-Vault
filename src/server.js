@@ -8,7 +8,8 @@ import { ALL_SOURCES } from './sources/index.js';
 import { getObjectStream } from './storage.js';
 import { ghl, parseFileFieldValue } from './ghl.js';
 import { createPackage, dissolvePackage, PACKAGE_SIZES, STANDARD_COLUMNS } from './packager.js';
-import { listObjects, deletePrefix } from './storage.js';
+import { listObjects, deletePrefix, presign } from './storage.js';
+import { queueBundles } from './bundler.js';
 import { summary, breakdowns, search, searchAll } from './analytics.js';
 import { locationUsage, userUsage, dailySeries, agencyOverview } from './usage.js';
 import crypto from 'node:crypto';
@@ -209,26 +210,44 @@ function streamZip(res, filename, rows, stripPrefix) {
   })().catch(err => { console.error('zip stream', err.message); res.destroy(err); });
 }
 
-// Export page: lists parts (chunked zips) + manifest + rclone alternative.
+const fmtB = n => { const u = ['B','KB','MB','GB','TB']; let i = 0; n = Number(n || 0); while (n >= 1024 && i < 4) { n /= 1024; i++; } return n.toFixed(i ? 1 : 0) + ' ' + u[i]; };
+
+async function bundleStatus(locationId, scope) {
+  const { rows } = await q(`SELECT * FROM bundles WHERE location_id=$1 AND scope=$2 ORDER BY part`, [locationId, scope]);
+  return Promise.all(rows.map(async b => ({ ...b, url: b.status === 'done' ? await presign(b.r2_key, b.r2_key.split('/').pop()) : null })));
+}
+app.get('/api/locations/:id/bundles', async (req, res) => res.json(await bundleStatus(req.params.id, req.query.scope || 'location')));
+app.post('/api/locations/:id/bundles', async (req, res) => {
+  const scope = req.body?.scope || 'location';
+  res.json({ parts: await queueBundles(req.params.id, scope) });
+});
+
+// Export page: prepare zip parts in R2, then download them directly from Cloudflare.
 app.get('/api/locations/:id/export', async (req, res) => {
+  const scope = req.query.scope || 'location';
   const rows = await locationZipRows(req.params.id);
-  const parts = Math.ceil(rows.length / ZIP_PART_FILES);
-  const fmtB = n => { const u = ['B','KB','MB','GB','TB']; let i = 0; n = Number(n || 0); while (n >= 1024 && i < 4) { n /= 1024; i++; } return n.toFixed(i ? 1 : 0) + ' ' + u[i]; };
-  const partInfo = Array.from({ length: parts }, (_, i) => { const slice = rows.slice(i * ZIP_PART_FILES, (i + 1) * ZIP_PART_FILES); return { n: i + 1, files: slice.length, bytes: slice.reduce((a, r) => a + Number(r.size_bytes || 0), 0) }; });
   const total = rows.reduce((a, r) => a + Number(r.size_bytes || 0), 0);
   res.type('html').send(`<!doctype html><meta charset="utf-8"><title>Export ${req.params.id}</title>
   <style>body{font:14px/1.6 ui-monospace,monospace;background:#0f1210;color:#e6e9e4;padding:32px;max-width:900px}a{color:#6fb3ff}h1{font-weight:600;font-size:18px}
-  table{border-collapse:collapse;margin:16px 0}td,th{padding:6px 14px 6px 0;text-align:left;border-bottom:1px solid #263029}small{color:#8a948c}pre{background:#151a16;padding:12px;border-radius:3px;overflow-x:auto}</style>
+  table{border-collapse:collapse;margin:16px 0;width:100%}td,th{padding:6px 14px 6px 0;text-align:left;border-bottom:1px solid #263029}small{color:#8a948c}pre{background:#151a16;padding:12px;border-radius:3px;overflow-x:auto}
+  button{font:inherit;padding:8px 14px;background:#f2b33d;border:0;border-radius:3px;cursor:pointer;font-weight:600}.pill{font-size:11px;padding:1px 6px;border:1px solid #263029;border-radius:2px;text-transform:uppercase}
+  .done{color:#5fd38a;border-color:#5fd38a}.running{color:#f2b33d;border-color:#f2b33d}.failed{color:#f06a5a;border-color:#f06a5a}</style>
   <h1>Export · ${req.params.id}</h1>
-  <p>${rows.length.toLocaleString()} files · ${fmtB(total)} total. Each part is a separate zip; download them one at a time and keep the tab open until each finishes.</p>
-  <p><a href="/api/locations/${req.params.id}/manifest.csv">manifest.csv</a> (join key for everything below)${rows.length <= ZIP_MAX_FILES ? ` · <a href="/api/locations/${req.params.id}/export.zip">single zip of everything</a> (${fmtB(total)})` : ''}</p>
-  <table><tr><th>Part</th><th>Files</th><th>Size</th><th></th></tr>
-  ${partInfo.map(p => `<tr><td>${p.n} of ${parts}</td><td>${p.files.toLocaleString()}</td><td>${fmtB(p.bytes)}</td><td><a href="/api/locations/${req.params.id}/export.zip?part=${p.n}">download part ${p.n}</a></td></tr>`).join('')}
-  </table>
-  <p><small>Fastest alternative if you have a terminal:</small></p>
+  <p>${rows.length.toLocaleString()} files · ${fmtB(total)} in the vault. <a href="/api/locations/${req.params.id}/manifest.csv">manifest.csv</a></p>
+  <p><button id="prep">Prepare download</button> <small>builds zip parts of up to ${ZIP_PART_FILES.toLocaleString()} files inside R2; you then download each part directly from Cloudflare (resumable, no proxy timeouts). Safe to close this tab while it builds.</small></p>
+  <div id="parts"></div>
+  <p><small>Alternative with a terminal:</small></p>
   <pre>rclone sync r2:${process.env.R2_BUCKET}/${req.params.id} ./${req.params.id}
 # rclone config: type=s3, provider=Cloudflare, endpoint=https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com</pre>
-  <p><a href="/">← back</a></p>`);
+  <p><a href="/">← back</a></p>
+  <script>
+  const fmtB=n=>{const u=['B','KB','MB','GB','TB'];let i=0;n=Number(n||0);while(n>=1024&&i<4){n/=1024;i++}return n.toFixed(i?1:0)+' '+u[i]};
+  async function load(){const bs=await fetch('/api/locations/${req.params.id}/bundles?scope=${scope}').then(r=>r.json());
+    document.getElementById('parts').innerHTML=bs.length?'<table><tr><th>Part</th><th>Files</th><th>Status</th><th>Size</th><th></th></tr>'+bs.map(b=>\`<tr><td>\${b.part} of \${b.total_parts}</td><td>\${b.file_count.toLocaleString()}</td><td><span class="pill \${b.status}">\${b.status}</span>\${b.error?' <small>'+b.error+'</small>':''}</td><td>\${b.bytes?fmtB(b.bytes):''}</td><td>\${b.url?'<a href="'+b.url+'">download part '+b.part+'</a>':''}</td></tr>\`).join('')+'</table><small>Links are valid for 24 hours; reload this page for fresh ones.</small>':'<small>No download prepared yet.</small>';
+    if(bs.some(b=>b.status!=='done'&&b.status!=='failed'))setTimeout(load,5000)}
+  document.getElementById('prep').onclick=async()=>{if(!confirm('Build zip parts now? Existing parts are replaced.'))return;await fetch('/api/locations/${req.params.id}/bundles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'${scope}'})});load()};
+  load();
+  </script>`);
 });
 
 app.get('/api/locations/:id/export.zip', async (req, res) => {
@@ -277,6 +296,11 @@ app.get('/api/packages/:id/manifest.csv', async (req, res) => {
   if (!pkg?.r2_prefix) return res.status(404).send('package not built yet');
   res.set('Content-Type', 'text/csv').set('Content-Disposition', `attachment; filename="package-${pkg.id}-manifest.csv"`);
   (await getObjectStream(`${pkg.r2_prefix}/manifest.csv`)).pipe(res);
+});
+app.get('/api/packages/:id/export', async (req, res) => {
+  const { rows: [pkg] } = await q('SELECT * FROM packages WHERE id=$1', [req.params.id]);
+  if (!pkg) return res.status(404).send('no such package');
+  res.redirect(`/api/locations/${pkg.location_id}/export?scope=package:${pkg.id}`);
 });
 app.get('/api/packages/:id/export.zip', async (req, res) => {
   const { rows: [pkg] } = await q('SELECT * FROM packages WHERE id=$1', [req.params.id]);

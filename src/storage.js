@@ -1,5 +1,6 @@
 import { S3Client, GetObjectCommand, ListObjectsV2Command, CopyObjectCommand, PutObjectCommand, DeleteObjectsCommand } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Readable, Transform } from 'node:stream';
 import { q } from './db.js';
 import { getToken } from './ghl.js';
@@ -139,4 +140,16 @@ export async function deletePrefix(prefix) {
   for await (const o of listObjects(prefix)) { batch.push({ Key: o.Key }); if (batch.length === 1000) await flush(); }
   await flush();
   return n;
+}
+
+export function presign(key, filename, expiresIn = 24 * 3600) {
+  return getSignedUrl(r2, new GetObjectCommand({ Bucket: BUCKET, Key: key, ResponseContentDisposition: `attachment; filename="${filename}"` }), { expiresIn });
+}
+// Upload an arbitrary readable stream (e.g. an archiver zip) to R2 via multipart. Returns bytes written.
+export async function uploadStream(key, stream, contentType = 'application/zip') {
+  let bytes = 0;
+  const counter = new Transform({ transform(c, _e, cb) { bytes += c.length; cb(null, c); } });
+  const up = new Upload({ client: r2, params: { Bucket: BUCKET, Key: key, Body: stream.pipe(counter), ContentType: contentType }, partSize: 64 * 1024 * 1024, queueSize: 2 });
+  await up.done();
+  return bytes;
 }

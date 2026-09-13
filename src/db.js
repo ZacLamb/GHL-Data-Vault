@@ -166,6 +166,13 @@ export async function migrate() {
     ALTER TABLE files ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMPTZ;   -- Last-Modified from GHL storage ≈ upload time
     CREATE INDEX IF NOT EXISTS files_loc_uploaded ON files(location_id, uploaded_at);
     ALTER TABLE contacts ADD COLUMN IF NOT EXISTS date_updated TIMESTAMPTZ;
+    CREATE TABLE IF NOT EXISTS bundles (           -- pre-built zip parts stored in R2 for direct download
+      id SERIAL PRIMARY KEY, location_id TEXT NOT NULL, scope TEXT NOT NULL,   -- 'location' or 'package:<id>'
+      part INT NOT NULL, total_parts INT NOT NULL, file_count INT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued', r2_key TEXT, bytes BIGINT, error TEXT,
+      created_at TIMESTAMPTZ DEFAULT now(), finished_at TIMESTAMPTZ,
+      UNIQUE (location_id, scope, part)
+    );
     ALTER TABLE contacts ADD COLUMN IF NOT EXISTS assigned_to TEXT;
     ALTER TABLE contacts ADD COLUMN IF NOT EXISTS created_by_user TEXT;
     ALTER TABLE contacts ADD COLUMN IF NOT EXISTS source TEXT;
