@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Account activity report</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#fbfaf7;--panel:#fff;--line:#e4e1d8;--ink:#1c1b18;--dim:#7a776e;--accent:#1f5eff;--green:#1e9e5a;--amber:#c98a1e;--red:#d64545}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "IBM Plex Mono",ui-monospace,monospace}
+  header{padding:32px 40px 16px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+  h1{font:italic 34px/1 "Instrument Serif",serif;margin:0}header .r{color:var(--dim);font-size:12px;margin-left:auto}
+  main{padding:20px 40px 60px;max-width:1300px}h2{font:italic 22px/1 "Instrument Serif",serif;margin:26px 0 12px}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}button,input{font:inherit;padding:6px 10px;border:1px solid var(--line);background:#fff;border-radius:3px}button{cursor:pointer}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.kpi{background:var(--panel);border:1px solid var(--line);padding:14px 16px;border-radius:4px}
+  .kpi .v{font-size:24px;font-weight:600}.kpi .l{color:var(--dim);font-size:11px;letter-spacing:.1em;text-transform:uppercase;margin-top:4px}
+  .card{background:var(--panel);border:1px solid var(--line);padding:14px 16px;border-radius:4px}table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap}
+  th{text-align:right;color:var(--dim);font-weight:500;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:8px 6px;border-bottom:2px solid var(--ink)}th:first-child,td:first-child{text-align:left}
+  td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right}.tableWrap{overflow-x:auto}
+  .pill{display:inline-block;padding:1px 7px;border:1px solid var(--line);border-radius:2px;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+  .pill.active{color:var(--green);border-color:var(--green)}.pill.low{color:var(--amber);border-color:var(--amber)}.pill.inactive{color:var(--red);border-color:var(--red)}.pill.none{color:var(--dim)}
+  .chart{display:flex;align-items:flex-end;gap:2px;height:120px}.chart .d{flex:1;display:flex;flex-direction:column-reverse;min-width:3px}.chart .d div{width:100%}
+  .s{background:var(--amber)}.e{background:var(--accent)}.c{background:var(--green)}.i{background:#bbb}
+  .legend{display:flex;gap:14px;font-size:11px;color:var(--dim);margin-top:6px}.legend i{display:inline-block;width:10px;height:10px;margin-right:4px;vertical-align:middle}
+  .note{color:var(--dim);font-size:11px;margin-top:8px}@media print{.bar{display:none}}
+</style>
+</head>
+<body>
+<header><h1 id="title">Account activity</h1><span class="r" id="range"></span></header>
+<main>
+  <div class="bar"><button data-d="7">Last 7 days</button><button data-d="30">Last 30 days</button><button data-d="90">Last 90 days</button><button onclick="print()">Print / PDF</button></div>
+  <div class="kpis" id="kpis"></div>
+  <h2>Daily activity</h2><div class="card"><div class="chart" id="chart"></div><div class="legend"><span><i class="s"></i>SMS out</span><span><i class="e"></i>Email out</span><span><i class="c"></i>Calls</span><span><i class="i"></i>Inbound</span></div></div>
+  <h2>Team</h2><div class="card"><div class="tableWrap"><table id="t"><thead></thead><tbody></tbody></table></div>
+  <div class="note">Active = activity in the last 7 days on 3+ days · Low = activity within 30 days · Inactive = none in 30+ days · Talk time = total call duration.</div></div>
+</main>
+<script>
+const token=location.pathname.split('/').pop();const $=s=>document.querySelector(s);const N=n=>Number(n||0).toLocaleString();
+const mins=s=>{s=Number(s||0);const h=Math.floor(s/3600),m=Math.round((s%3600)/60);return h?`${h}h ${m}m`:`${m}m`};const D=s=>s?new Date(s).toLocaleDateString():'—';
+async function load(days=30){
+  const to=new Date(),from=new Date(to.getTime()-days*86400000);const iso=d=>d.toISOString().slice(0,10);
+  const r=await fetch(`/api/report/${token}?from=${iso(from)}&to=${iso(to)}`).then(r=>r.json());
+  $('#title').textContent=`${r.name||'Account'} — activity report`;$('#range').textContent=`${from.toLocaleDateString()} – ${to.toLocaleDateString()}`;
+  const s=r.summary;$('#kpis').innerHTML=[['New contacts',N(s.contacts.created)],['Outbound messages',N(s.messages.outbound)],['Inbound messages',N(s.messages.inbound)],['Calls',N(s.messages.calls)],['Talk time',mins(s.messages.talk_seconds)],['Active users',N(s.messages.active_users)],['Opportunities won',N(s.opportunities.won)],['Won value',`$${N(Math.round(s.opportunities.won_value))}`],['Appointments',N(s.appointments.booked)]]
+    .map(([l,v])=>`<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
+  const max=Math.max(1,...r.daily.map(d=>d.sms+d.email+d.calls+d.inbound));
+  $('#chart').innerHTML=r.daily.map(d=>`<div class="d" title="${d.day.slice(0,10)}"><div class="s" style="height:${110*d.sms/max}px"></div><div class="e" style="height:${110*d.email/max}px"></div><div class="c" style="height:${110*d.calls/max}px"></div><div class="i" style="height:${110*d.inbound/max}px"></div></div>`).join('');
+  const cols=[['User',u=>`<b>${u.name||'(unknown)'}</b>`],['Status',u=>`<span class="pill ${u.status}">${u.status}</span>`],['SMS',u=>N(u.sms_out)],['Email',u=>N(u.email_out)],['Calls',u=>N(u.calls_out+u.calls_in)],['Talk',u=>mins(u.talk_seconds)],['Contacts touched',u=>N(u.contacts_touched)],['Created',u=>N(u.contacts_created)],['Opps',u=>N(u.opps_created)],['Won',u=>N(u.opps_won)],['Appts',u=>N(u.appointments)],['Active days',u=>N(u.active_days)],['Last activity',u=>D(u.last_activity)]];
+  $('#t thead').innerHTML='<tr>'+cols.map(c=>`<th>${c[0]}</th>`).join('')+'</tr>';
+  $('#t tbody').innerHTML=r.users.map(u=>'<tr>'+cols.map(c=>`<td>${c[1](u)}</td>`).join('')+'</tr>').join('');
+}
+document.querySelectorAll('button[data-d]').forEach(b=>b.onclick=()=>load(Number(b.dataset.d)));load();
+</script>
+</body>
+</html>

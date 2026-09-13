@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GHL Vault · Usage</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#0f1210;--panel:#151a16;--line:#263029;--ink:#e6e9e4;--dim:#8a948c;--amber:#f2b33d;--green:#5fd38a;--red:#f06a5a;--blue:#6fb3ff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.5 "IBM Plex Mono",ui-monospace,monospace;background-image:radial-gradient(circle at 80% -10%,rgba(111,179,255,.07),transparent 45%)}
+  header{display:flex;align-items:baseline;gap:18px;padding:26px 36px 12px;border-bottom:1px solid var(--line)}
+  h1{font:italic 36px/1 "Instrument Serif",serif;margin:0}
+  h1 small{font:11px "IBM Plex Mono",monospace;color:var(--blue);letter-spacing:.2em;text-transform:uppercase;margin-left:12px;vertical-align:middle}
+  header a{color:var(--dim);margin-left:auto}
+  main{padding:20px 36px 60px;max-width:1500px}
+  h2{font:italic 22px/1 "Instrument Serif",serif;margin:30px 0 12px;color:var(--blue)}
+  .bar{display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:14px}
+  label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase}
+  input,select,button{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:2px;padding:7px 10px}
+  button{cursor:pointer}button:hover{border-color:var(--blue);color:var(--blue)}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .kpi{background:var(--panel);border:1px solid var(--line);padding:14px 16px;border-radius:3px}
+  .kpi .v{font-size:24px;font-weight:600;line-height:1.1}.kpi .l{color:var(--dim);font-size:11px;letter-spacing:.12em;text-transform:uppercase;margin-top:4px}
+  .card{background:var(--panel);border:1px solid var(--line);padding:14px 16px;border-radius:3px}
+  table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap}
+  th{text-align:right;color:var(--dim);font-weight:500;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:8px 6px;border-bottom:1px solid var(--blue);cursor:pointer}
+  th:first-child,td:first-child{text-align:left}td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right}
+  tr:hover td{background:rgba(255,255,255,.025)}tr.sel td{background:rgba(111,179,255,.08)}
+  .id{color:var(--dim);font-size:11px}.tableWrap{overflow-x:auto}
+  .chart{display:flex;align-items:flex-end;gap:2px;height:140px;margin-top:10px}
+  .chart .d{flex:1;display:flex;flex-direction:column-reverse;min-width:3px}
+  .chart .d div{width:100%}.chart .s{background:var(--amber)}.chart .e{background:var(--blue)}.chart .c{background:var(--green)}.chart .i{background:var(--dim);opacity:.5}
+  .legend{display:flex;gap:14px;font-size:11px;color:var(--dim);margin-top:6px}.legend i{display:inline-block;width:10px;height:10px;margin-right:4px;vertical-align:middle}
+  a{color:var(--blue);text-decoration:none}
+  .pill{display:inline-block;padding:1px 7px;border:1px solid var(--line);border-radius:2px;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+  .pill.active{border-color:var(--green);color:var(--green)}.pill.slowing,.pill.low{border-color:var(--amber);color:var(--amber)}
+  .pill.dormant,.pill.inactive{border-color:var(--red);color:var(--red)}.pill.never,.pill.none{color:var(--dim)}
+  .sum{display:flex;gap:18px;flex-wrap:wrap;margin:0 0 12px;font-size:12px;color:var(--dim)}.sum b{color:var(--ink)}
+  .note{color:var(--dim);font-size:11px;margin-top:6px}
+</style>
+</head>
+<body>
+<header><h1>Usage<small id="locLabel">agency</small></h1><a href="/">← locations</a></header>
+<main>
+  <div class="bar">
+    <label>Location<select id="locSel"><option value="">— all sub-accounts (overview) —</option></select></label>
+    <label>From<input id="from" type="date"></label>
+    <label>To<input id="to" type="date"></label>
+    <button id="q7">7d</button><button id="q30">30d</button><button id="q90">90d</button><button id="qytd">YTD</button>
+    <button id="apply" style="border-color:var(--blue);color:var(--blue)">Apply</button>
+    <span style="flex:1"></span>
+    <button id="csv">Export table CSV</button>
+    <button id="share" style="display:none">Owner report link</button>
+  </div>
+
+  <div id="overview"></div>
+  <div id="location" style="display:none">
+    <div class="kpis" id="kpis"></div>
+    <h2>Daily activity <span class="id" id="chartFor"></span></h2>
+    <div class="card"><div class="chart" id="chart"></div>
+      <div class="legend"><span><i class="s"></i>SMS out</span><span><i class="e"></i>Email out</span><span><i class="c"></i>Calls</span><span><i class="i"></i>Inbound</span></div></div>
+    <h2>By channel</h2><div class="card" id="channels"></div>
+    <h2>By user <span class="id">— click a row to chart that user; click headers to sort</span></h2>
+    <div class="card"><div class="tableWrap"><table id="users"><thead></thead><tbody></tbody></table></div>
+      <div class="note">Logins aren't exposed by the GHL API; "active days" = days with any outbound activity. Talk time = summed call duration. Contacts created counts contacts whose createdBy is that user; assigned = currently assigned. Run the <b>usage</b> and <b>conversations</b> sources to populate.</div></div>
+  </div>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const api=(p)=>fetch(p).then(r=>r.json());
+const N=n=>Number(n||0).toLocaleString();
+const mins=s=>{s=Number(s||0);const h=Math.floor(s/3600),m=Math.round((s%3600)/60);return h?`${h}h ${m}m`:`${m}m`};
+const D=s=>s?new Date(s).toLocaleDateString():'—';
+const iso=d=>d.toISOString().slice(0,10);
+let loc=new URLSearchParams(location.search).get('loc')||'';let lastRows=[],lastCols=[],sortKey=null,sortDir=-1,selUser=null;
+function setRange(days){const t=new Date();const f=new Date(t.getTime()-days*86400000);$('#from').value=iso(f);$('#to').value=iso(t)}
+$('#q7').onclick=()=>{setRange(7);load()};$('#q30').onclick=()=>{setRange(30);load()};$('#q90').onclick=()=>{setRange(90);load()};
+$('#qytd').onclick=()=>{$('#from').value=new Date().getFullYear()+'-01-01';$('#to').value=iso(new Date());load()};
+$('#apply').onclick=load;$('#locSel').onchange=()=>{loc=$('#locSel').value;selUser=null;history.replaceState(null,'',loc?`?loc=${loc}`:'?');load()};
+const qs=()=>`from=${$('#from').value}&to=${$('#to').value}`;
+
+function table(el,cols,rows,onRow){
+  const th=el.querySelector('thead'),tb=el.querySelector('tbody');
+  th.innerHTML='<tr>'+cols.map(c=>`<th data-k="${c.k}">${c.l}${sortKey===c.k?(sortDir<0?' ▼':' ▲'):''}</th>`).join('')+'</tr>';
+  th.querySelectorAll('th').forEach(h=>h.onclick=()=>{const k=h.dataset.k;sortDir=sortKey===k?-sortDir:-1;sortKey=k;render()});
+  const sorted=sortKey?[...rows].sort((a,b)=>{const x=a[sortKey],y=b[sortKey];return (x==null?-1:y==null?1:typeof x==='number'?x-y:String(x).localeCompare(String(y)))*sortDir}):rows;
+  tb.innerHTML=sorted.map(r=>`<tr data-id="${r.user_id||r.location_id||''}" class="${(r.user_id&&r.user_id===selUser)?'sel':''}">${cols.map(c=>`<td>${c.f?c.f(r):N(r[c.k])}</td>`).join('')}</tr>`).join('')||`<tr><td colspan="${cols.length}" class="id">no data — run the usage + conversations sources for this location</td></tr>`;
+  if(onRow)tb.querySelectorAll('tr').forEach(tr=>tr.onclick=()=>onRow(tr.dataset.id));
+  lastRows=sorted;lastCols=cols;
+}
+let render=()=>{};
+async function chart(userId){
+  const s=await api(`/api/locations/${loc}/usage/daily?${qs()}${userId?`&userId=${userId}`:''}`);
+  const max=Math.max(1,...s.map(d=>d.sms+d.email+d.calls+d.inbound));const H=130;
+  $('#chart').innerHTML=s.map(d=>`<div class="d" title="${d.day.slice(0,10)}: ${d.sms} sms, ${d.email} email, ${d.calls} calls, ${d.inbound} in">
+    <div class="s" style="height:${H*d.sms/max}px"></div><div class="e" style="height:${H*d.email/max}px"></div><div class="c" style="height:${H*d.calls/max}px"></div><div class="i" style="height:${H*d.inbound/max}px"></div></div>`).join('')||'<span class="id">no messages in range</span>';
+  $('#chartFor').textContent=userId?`— ${(lastRows.find(r=>r.user_id===userId)||{}).name||userId}`:'— whole account';
+}
+async function load(){
+  if(!loc){
+    $('#location').style.display='none';$('#locLabel').textContent='agency';
+    $('#share').style.display='none';
+    const rows=await api(`/api/usage/overview?${qs()}`);
+    const cnt=t=>rows.filter(r=>r.health===t).length;
+    $('#overview').innerHTML=`<h2>Agency checkup</h2><div class="sum"><span><b>${rows.length}</b> sub-accounts</span><span class="pill active">${cnt('active')} active</span><span class="pill slowing">${cnt('slowing')} slowing</span><span class="pill dormant">${cnt('dormant')} dormant</span><span class="pill never">${cnt('never')} never used</span><span><b>${N(rows.reduce((a,r)=>a+r.idle_seats,0))}</b> seats with no activity in 30d</span></div>
+      <div class="card"><div class="tableWrap"><table id="ov"><thead></thead><tbody></tbody></table></div><div class="note">Health: active = outbound in last 30d; slowing = last 30d under half of the prior 30d; dormant = nothing in 30d; never = no activity on record. Idle seats = users with no outbound activity in 30d.</div></div>`;
+    const cols=[{k:'name',l:'Location',f:r=>`<b>${r.name||'(unnamed)'}</b><div class="id">${r.location_id}</div>`},{k:'health',l:'Health',f:r=>`<span class="pill ${r.health}">${r.health}</span>`},{k:'users',l:'Users'},{k:'active_users',l:'Active'},{k:'idle_seats',l:'Idle seats'},{k:'contacts',l:'Contacts'},{k:'contacts_new',l:'New'},
+      {k:'outbound',l:'Out'},{k:'inbound',l:'In'},{k:'calls',l:'Calls'},{k:'talk_seconds',l:'Talk',f:r=>mins(r.talk_seconds)},{k:'won',l:'Won'},{k:'last_activity',l:'Last activity',f:r=>D(r.last_activity)},{k:'last_export',l:'Last export',f:r=>D(r.last_export)}];
+    render=()=>table($('#ov'),cols,rows,id=>{loc=id;$('#locSel').value=id;history.replaceState(null,'',`?loc=${id}`);load()});render();return;
+  }
+  $('#overview').innerHTML='';$('#location').style.display='';$('#locLabel').textContent=$('#locSel').selectedOptions[0]?.textContent||loc;
+  const [s,users]=await Promise.all([api(`/api/locations/${loc}/usage?${qs()}`),api(`/api/locations/${loc}/usage/users?${qs()}`)]);
+  $('#kpis').innerHTML=[['Contacts created',N(s.contacts.created)],['Outbound msgs',N(s.messages.outbound)],['Inbound msgs',N(s.messages.inbound)],['Calls',N(s.messages.calls)],['Talk time',mins(s.messages.talk_seconds)],
+    ['Active users',N(s.messages.active_users)],['Contacts touched',N(s.messages.contacts_touched)],['Opps created',N(s.opportunities.created)],['Opps won',N(s.opportunities.won)],['Won value',`$${N(Math.round(s.opportunities.won_value))}`],['Open opps',N(s.opportunities.open_now)],['Appointments',N(s.appointments.booked)]]
+    .map(([l,v])=>`<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
+  $('#channels').innerHTML='<table><thead><tr><th style="text-align:left">Channel</th><th>Outbound</th><th>Inbound</th></tr></thead><tbody>'+
+    [...new Set(s.channels.map(c=>c.channel))].map(ch=>`<tr><td style="text-align:left">${ch}</td><td>${N((s.channels.find(c=>c.channel===ch&&c.direction==='outbound')||{}).n)}</td><td>${N((s.channels.find(c=>c.channel===ch&&c.direction==='inbound')||{}).n)}</td></tr>`).join('')+'</tbody></table>';
+  $('#share').style.display='';
+  const cols=[{k:'name',l:'User',f:r=>`<b>${r.name||'(unknown user)'}</b><div class="id">${r.email||r.user_id} ${r.role?'· '+r.role:''}</div>`},{k:'status',l:'Status',f:r=>`<span class="pill ${r.status}">${r.status}</span>`},{k:'sms_out',l:'SMS'},{k:'email_out',l:'Email'},{k:'social_out',l:'Social'},{k:'calls_out',l:'Calls out'},{k:'calls_in',l:'Calls in'},
+    {k:'talk_seconds',l:'Talk',f:r=>mins(r.talk_seconds)},{k:'total_out',l:'Total out'},{k:'contacts_touched',l:'Touched'},{k:'contacts_created',l:'Created'},{k:'contacts_assigned',l:'Assigned'},{k:'opps_created',l:'Opps'},{k:'opps_won',l:'Won'},{k:'won_value',l:'Won $',f:r=>'$'+N(Math.round(r.won_value))},
+    {k:'appointments',l:'Appts'},{k:'notes',l:'Notes'},{k:'tasks',l:'Tasks'},{k:'contact_edits',l:'Edits'},{k:'stage_moves',l:'Stage moves'},{k:'active_days',l:'Active days'},{k:'first_activity',l:'First',f:r=>D(r.first_activity)},{k:'last_activity',l:'Last',f:r=>D(r.last_activity)}];
+  if(!sortKey)sortKey='total_out';
+  render=()=>table($('#users'),cols,users,id=>{selUser=selUser===id?null:id;render();chart(selUser)});render();chart(selUser);
+}
+$('#share').onclick=async()=>{const r=await fetch(`/api/locations/${loc}/report-token`,{method:'POST'}).then(r=>r.json());
+  await navigator.clipboard.writeText(r.url).catch(()=>{});prompt('Read-only owner report link (copied). Generating a new one revokes the old.',r.url)};
+$('#csv').onclick=()=>{const lines=[lastCols.map(c=>`"${c.l}"`).join(',')].concat(lastRows.map(r=>lastCols.map(c=>`"${String(r[c.k]??'').replace(/"/g,'""')}"`).join(',')));
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/csv'}));a.download=`usage-${loc||'agency'}.csv`;a.click()};
+api('/api/locations').then(ls=>{$('#locSel').innerHTML='<option value="">— all sub-accounts (overview) —</option>'+ls.map(l=>`<option value="${l.location_id}">${l.name||l.location_id}</option>`).join('');$('#locSel').value=loc;setRange(30);load()});
+</script>
+</body>
+</html>

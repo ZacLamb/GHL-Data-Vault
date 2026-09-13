@@ -98,6 +98,50 @@ export async function migrate() {
       UNIQUE (location_id, contact_id)     -- a contact can only ever be in one package
     );
     CREATE INDEX IF NOT EXISTS files_job ON files(job_id);
+
+    -- ---------- usage analytics ----------
+    CREATE TABLE IF NOT EXISTS users (
+      location_id TEXT NOT NULL, user_id TEXT NOT NULL,
+      name TEXT, email TEXT, role TEXT, type TEXT, updated_at TIMESTAMPTZ DEFAULT now(),
+      PRIMARY KEY (location_id, user_id)
+    );
+    CREATE TABLE IF NOT EXISTS messages (
+      location_id TEXT NOT NULL, message_id TEXT NOT NULL,
+      conversation_id TEXT, contact_id TEXT, user_id TEXT,
+      direction TEXT,            -- inbound|outbound
+      channel TEXT,              -- SMS|EMAIL|CALL|VOICEMAIL|WHATSAPP|FB|IG|LIVE_CHAT|GMB|OTHER
+      status TEXT, call_duration INT, date_added TIMESTAMPTZ,
+      PRIMARY KEY (location_id, message_id)
+    );
+    CREATE INDEX IF NOT EXISTS messages_loc_date ON messages(location_id, date_added);
+    CREATE INDEX IF NOT EXISTS messages_loc_user ON messages(location_id, user_id);
+    CREATE TABLE IF NOT EXISTS opportunities (
+      location_id TEXT NOT NULL, opportunity_id TEXT NOT NULL,
+      contact_id TEXT, assigned_to TEXT, pipeline_id TEXT, stage_id TEXT, status TEXT,
+      monetary_value NUMERIC, created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ, status_changed_at TIMESTAMPTZ,
+      PRIMARY KEY (location_id, opportunity_id)
+    );
+    CREATE INDEX IF NOT EXISTS opps_loc_created ON opportunities(location_id, created_at);
+    CREATE TABLE IF NOT EXISTS appointments (
+      location_id TEXT NOT NULL, event_id TEXT NOT NULL,
+      contact_id TEXT, user_id TEXT, calendar_id TEXT, status TEXT, start_time TIMESTAMPTZ, created_at TIMESTAMPTZ,
+      PRIMARY KEY (location_id, event_id)
+    );
+    CREATE INDEX IF NOT EXISTS appts_loc_start ON appointments(location_id, start_time);
+    ALTER TABLE locations ADD COLUMN IF NOT EXISTS report_token TEXT UNIQUE;
+    CREATE TABLE IF NOT EXISTS events (          -- webhook audit stream from the marketplace app
+      id BIGSERIAL PRIMARY KEY, location_id TEXT NOT NULL, event_type TEXT NOT NULL,
+      user_id TEXT, contact_id TEXT, object_id TEXT, occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(), payload JSONB
+    );
+    CREATE INDEX IF NOT EXISTS events_loc_time ON events(location_id, occurred_at);
+    CREATE INDEX IF NOT EXISTS events_loc_user ON events(location_id, user_id, event_type);
+    ALTER TABLE files ADD COLUMN IF NOT EXISTS cdn_url TEXT;
+    ALTER TABLE files ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMPTZ;   -- Last-Modified from GHL storage ≈ upload time
+    CREATE INDEX IF NOT EXISTS files_loc_uploaded ON files(location_id, uploaded_at);
+    ALTER TABLE contacts ADD COLUMN IF NOT EXISTS date_updated TIMESTAMPTZ;
+    ALTER TABLE contacts ADD COLUMN IF NOT EXISTS assigned_to TEXT;
+    ALTER TABLE contacts ADD COLUMN IF NOT EXISTS created_by_user TEXT;
+    ALTER TABLE contacts ADD COLUMN IF NOT EXISTS source TEXT;
   `);
   // One-time cleanup: recordings that 422'd are calls with no recording, not failures.
   await q(`UPDATE files SET status='skipped', error='no recording' WHERE source='recording' AND status='failed' AND error LIKE 'HTTP 422%'`);

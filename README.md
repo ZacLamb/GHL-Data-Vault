@@ -84,3 +84,27 @@ month added, and file source. Clicking any bar adds it as a filter. Filters comb
 must-not-have fields, tags, states, date range, custom field value, keyword, unassigned-only. From a filtered set you
 can export a CSV or create a random package of N contacts drawn only from that filter (still non-overlapping with
 existing packages).
+
+## Usage analytics
+
+`/usage.html` (link in the header) shows an agency overview — one row per sub-account with users, active users,
+contacts, new contacts, outbound/inbound messages, calls, talk time, deals won, last activity — and, per location,
+KPIs, a daily activity chart, channel breakdown, and a per-user table (SMS/email/social sent, calls in/out, talk time,
+contacts touched/created/assigned, opportunities created/won/value, appointments, active days, first/last activity).
+Any date range; click a user to chart just them; export the table to CSV.
+
+Data comes from two sources: **conversations** (message metadata — every message, not just ones with attachments) and
+**usage** (users, opportunities, calendar events). Run both, then use Sync new to keep them current. Logins are not
+available through the public API; "active days" is the closest proxy.
+
+### Agency checkup, owner reports, audit webhooks
+
+- The usage overview shows a **health** tier per sub-account (active / slowing / dormant / never) and **idle seats**
+  (users with no outbound activity in 30 days). The per-user table shows a **status** (active / low / inactive / none).
+- **Owner report link** (on a location's usage page) creates a read-only `/report/<token>` page — light theme,
+  printable, no login, last 7/30/90 days, that account only, no emails shown. Generating a new link revokes the old.
+- **Audit stream**: create an agency-level marketplace app, subscribe to webhook events (ContactCreate/Update/Delete,
+  NoteCreate, TaskCreate/Complete, OpportunityStageUpdate/StatusUpdate, OutboundMessage, InboundMessage,
+  AppointmentCreate, UserCreate…) and set the webhook URL to `https://<host>/webhooks/ghl?key=<WEBHOOK_KEY>`.
+  Events land in the `events` table and surface as Notes / Tasks / Edits / Stage moves columns per user.
+  `/api/locations/<id>/events` shows what event types have arrived. Logins are not published by GHL.

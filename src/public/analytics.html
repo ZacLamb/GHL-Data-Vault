@@ -60,6 +60,7 @@
     <div class="card"><h3>Contacts by state</h3><div id="states"></div></div>
     <div class="card"><h3>Contacts added per month</h3><div id="months"></div></div>
     <div class="card"><h3>Files by source</h3><div id="sources"></div></div>
+    <div class="card"><h3>Documents uploaded per month <span id="undated" class="id"></span></h3><div id="docMonths"></div></div>
   </div>
 
   <h2>Filter the dataset</h2>
@@ -71,12 +72,17 @@
       <label>Must NOT have fields<select id="notFields_sel" multiple></select></label>
       <label>Tags (any)<select id="tags_sel" multiple></select></label>
       <label>States (any)<select id="states_sel" multiple></select></label>
-      <label>Added from<input id="addedFrom" type="date"></label>
-      <label>Added to<input id="addedTo" type="date"></label>
+      <label>Contact added from<input id="addedFrom" type="date"></label>
+      <label>Contact added to<input id="addedTo" type="date"></label>
+      <label>Contact updated from<input id="updatedFrom" type="date"></label>
+      <label>Contact updated to<input id="updatedTo" type="date"></label>
+      <label>Docs uploaded from<input id="docsFrom" type="date"></label>
+      <label>Docs uploaded to<input id="docsTo" type="date"></label>
+      <label>…in field (optional)<select id="docsField"><option value="">any</option></select></label>
       <label>Custom field<select id="customKey"><option value="">—</option></select></label>
       <label>Custom value contains<input id="customValue"></label>
       <label>Search name / email / company / phone<input id="q"></label>
-      <label>Only unassigned<select id="unassigned"><option value="">no</option><option value="1">yes</option></select></label>
+      <label>Only not-yet-packaged<select id="unassigned"><option value="">no</option><option value="1">yes</option></select></label>
     </div>
     <div class="actions">
       <button class="primary" id="apply">Apply filters</button>
@@ -138,7 +144,7 @@ async function loadAnalytics(){
   $('#kpis').innerHTML=[
     ['Contacts',N(s.contacts)],['With documents',N(s.with_docs),'g'],['Without documents',N(s.without_docs),'r'],
     ['Documents in R2',N(s.documents)],['Avg docs (contacts w/ docs)',s.avg_per_contact_with_docs??'—'],['Storage',fmtB(s.bytes)],
-    ['Unassigned to packages',N(s.unassigned)],['Failed downloads',N(s.failed_files),s.failed_files?'r':''],
+    ['Not yet packaged',N(s.unassigned)],['Failed downloads',N(s.failed_files),s.failed_files?'r':''],
   ].map(([l,v,c])=>`<div class="kpi ${c||''}"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
   bars($('#dist'),[{key:'0',contacts:s.without_docs},{key:'1',contacts:s.b1},{key:'2–4',contacts:s.b2_4},{key:'5–9',contacts:s.b5_9},{key:'10+',contacts:s.b10p}],'contacts',k=>{
     const m={'0':[0,0],'1':[1,1],'2–4':[2,4],'5–9':[5,9],'10+':[10,'']}[k];$('#minFiles').value=m[0];$('#maxFiles').value=m[1];run()});
@@ -147,6 +153,9 @@ async function loadAnalytics(){
   bars($('#states'),a.states,'contacts',k=>{selectValue($('#states_sel'),k);run()});
   bars($('#months'),a.months,'contacts',k=>{$('#addedFrom').value=k+'-01';const d=new Date(k+'-01T00:00:00Z');d.setUTCMonth(d.getUTCMonth()+1);d.setUTCDate(0);$('#addedTo').value=d.toISOString().slice(0,10);run()});
   bars($('#sources'),a.sources,'files');
+  bars($('#docMonths'),a.docMonths,'files',k=>{$('#docsFrom').value=k+'-01';const d=new Date(k+'-01T00:00:00Z');d.setUTCMonth(d.getUTCMonth()+1);d.setUTCDate(0);$('#docsTo').value=d.toISOString().slice(0,10);run()});
+  $('#undated').textContent=a.undatedFiles?`— ${a.undatedFiles.toLocaleString()} files not dated yet: run the file_dates source`:'';
+  $('#docsField').innerHTML='<option value="">any</option>'+a.fields.map(f=>`<option>${f.key}</option>`).join('');
   fillSelect($('#fields_sel'),a.fields.map(f=>f.key));fillSelect($('#notFields_sel'),a.fields.map(f=>f.key));
   const checks=(el,items)=>{el.innerHTML=items.map(i=>`<label><input type="checkbox" value="${String(i).replace(/"/g,'&quot;')}" checked> ${i}</label>`).join('')||'<span class="id">none yet</span>'};
   checks($('#ccols'),a.customKeys);checks($('#docs'),a.fields.map(f=>f.key));
@@ -156,6 +165,7 @@ async function loadAnalytics(){
 const multi=sel=>[...sel.selectedOptions].map(o=>o.value);
 function filters(){return{minFiles:$('#minFiles').value,maxFiles:$('#maxFiles').value,fields:multi($('#fields_sel')),notFields:multi($('#notFields_sel')),
   tags:multi($('#tags_sel')),states:multi($('#states_sel')),addedFrom:$('#addedFrom').value,addedTo:$('#addedTo').value,
+  updatedFrom:$('#updatedFrom').value,updatedTo:$('#updatedTo').value,docsFrom:$('#docsFrom').value,docsTo:$('#docsTo').value,docsField:$('#docsField').value,
   customKey:$('#customKey').value,customValue:$('#customValue').value,q:$('#q').value,unassigned:!!$('#unassigned').value}}
 async function run(p=1){
   page=p;const r=await api(`/api/locations/${loc}/search`,{method:'POST',body:{filters:filters(),page,limit:LIMIT}});

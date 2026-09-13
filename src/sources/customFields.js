@@ -7,14 +7,17 @@ async function upsertContact(locationId, c, fileFieldIds, nameById, fileCount) {
   const custom = {};
   for (const cf of c.customFields || []) if (!fileFieldIds.has(cf.id)) custom[nameById[cf.id] || cf.id] = cf.value;
   await q(`INSERT INTO contacts (location_id, contact_id, first_name, last_name, email, phone, company, address, city, state,
-             postal_code, tags, date_added, custom, file_count, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,now())
+             postal_code, tags, date_added, custom, file_count, updated_at, assigned_to, created_by_user, source, date_updated)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,now(),$16,$17,$18,$19)
            ON CONFLICT (location_id, contact_id) DO UPDATE SET first_name=EXCLUDED.first_name, last_name=EXCLUDED.last_name,
              email=EXCLUDED.email, phone=EXCLUDED.phone, company=EXCLUDED.company, address=EXCLUDED.address, city=EXCLUDED.city,
              state=EXCLUDED.state, postal_code=EXCLUDED.postal_code, tags=EXCLUDED.tags, date_added=EXCLUDED.date_added,
-             custom=EXCLUDED.custom, file_count=COALESCE(EXCLUDED.file_count, contacts.file_count), updated_at=now()`,
-    [locationId, c.id, c.firstName, c.lastName, c.email, c.phone, c.companyName, c.address1, c.city, c.state, c.postalCode,
-     c.tags || [], c.dateAdded ? new Date(c.dateAdded) : null, custom, fileCount ?? 0]);
+             custom=EXCLUDED.custom, file_count=COALESCE(EXCLUDED.file_count, contacts.file_count), updated_at=now(),
+             assigned_to=EXCLUDED.assigned_to, created_by_user=COALESCE(EXCLUDED.created_by_user, contacts.created_by_user), source=EXCLUDED.source, date_updated=EXCLUDED.date_updated`,
+    [locationId, c.id, c.firstName, c.lastName, c.email, c.phone, c.companyName, c.address1 ?? c.address, c.city, c.state, c.postalCode,
+     c.tags || [], c.dateAdded ? new Date(c.dateAdded) : null, custom, fileCount ?? 0,
+     c.assignedTo || null, c.createdBy?.userId || (c.createdBy?.source === 'USER' ? c.createdBy?.sourceId : null) || null, c.source || null,
+     c.dateUpdated ? new Date(c.dateUpdated) : null]);
 }
 
 async function fileFields(locationId, model) {

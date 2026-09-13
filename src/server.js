@@ -10,12 +10,44 @@ import { ghl, parseFileFieldValue } from './ghl.js';
 import { createPackage, dissolvePackage, PACKAGE_SIZES, STANDARD_COLUMNS } from './packager.js';
 import { listObjects, deletePrefix } from './storage.js';
 import { summary, breakdowns, search, searchAll } from './analytics.js';
+import { locationUsage, userUsage, dailySeries, agencyOverview } from './usage.js';
+import crypto from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json());
 
-// --- basic auth on everything ------------------------------------------------------
+// --- public routes (no basic auth): webhook receiver + owner report ---------------------
+// GHL marketplace-app webhooks. Point the app's webhook URL at https://<host>/webhooks/ghl?key=<WEBHOOK_KEY>.
+app.post('/webhooks/ghl', async (req, res) => {
+  if (process.env.WEBHOOK_KEY && req.query.key !== process.env.WEBHOOK_KEY) return res.status(401).end();
+  const b = req.body || {};
+  const type = b.type || b.event || 'Unknown';
+  const userId = b.userId || b.user?.id || b.assignedTo || b.createdBy?.userId || null;
+  const contactId = b.contactId || b.contact_id || (type.startsWith('Contact') ? b.id : null);
+  const objectId = b.id || b.messageId || b.opportunityId || b.noteId || b.taskId || null;
+  const at = b.timestamp || b.dateAdded || b.createdAt || new Date().toISOString();
+  if (b.locationId) {
+    await q(`INSERT INTO events (location_id, event_type, user_id, contact_id, object_id, occurred_at, payload) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [b.locationId, type, userId, contactId, objectId, new Date(at), b]).catch(err => console.error('webhook insert', err.message));
+  }
+  res.json({ ok: true });
+});
+
+app.get('/report/:token', async (req, res) => {
+  const { rows: [loc] } = await q('SELECT location_id, name FROM locations WHERE report_token=$1', [req.params.token]);
+  if (!loc) return res.status(404).send('Report not found');
+  res.sendFile(path.join(__dirname, 'public', 'report.html'));
+});
+app.get('/api/report/:token', async (req, res) => {
+  const { rows: [loc] } = await q('SELECT location_id, name FROM locations WHERE report_token=$1', [req.params.token]);
+  if (!loc) return res.status(404).json({ error: 'not found' });
+  const { from, to } = req.query;
+  const [s, users, daily] = await Promise.all([locationUsage(loc.location_id, from, to), userUsage(loc.location_id, from, to), dailySeries(loc.location_id, from, to)]);
+  res.json({ name: loc.name, summary: s, users: users.map(u => ({ ...u, email: undefined })), daily });
+});
+
+// --- basic auth on everything else -----------------------------------------------------
 app.use((req, res, next) => {
   const pw = process.env.ADMIN_PASSWORD;
   if (!pw) return next();
@@ -252,6 +284,23 @@ app.get('/api/locations/:id/failures', async (req, res) => {
   const { rows: sizes } = await q(`SELECT count(*) AS done, count(*) FILTER (WHERE size_bytes IS NULL) AS no_size, min(r2_key) AS sample_key FROM files WHERE location_id=$1 AND status='done'`, [req.params.id]);
   const { rows: [sk] } = await q(`SELECT count(*) AS skipped FROM files WHERE location_id=$1 AND status='skipped'`, [req.params.id]);
   res.json({ failures: rows.map(r => ({ ...r, n: Number(r.n) })), done: sizes[0], skipped_no_recording: Number(sk.skipped) });
+});
+
+// --- usage analytics ---------------------------------------------------------------------
+app.get('/api/usage/overview', async (req, res) => res.json(await agencyOverview(req.query.from, req.query.to)));
+app.get('/api/locations/:id/usage', async (req, res) => res.json(await locationUsage(req.params.id, req.query.from, req.query.to)));
+app.get('/api/locations/:id/usage/users', async (req, res) => res.json(await userUsage(req.params.id, req.query.from, req.query.to)));
+app.get('/api/locations/:id/usage/daily', async (req, res) => res.json(await dailySeries(req.params.id, req.query.from, req.query.to, req.query.userId)));
+
+app.post('/api/locations/:id/report-token', async (req, res) => {
+  const token = crypto.randomBytes(18).toString('base64url');
+  await q('UPDATE locations SET report_token=$2 WHERE location_id=$1', [req.params.id, token]);
+  res.json({ token, url: `${req.protocol}://${req.get('host')}/report/${token}` });
+});
+app.delete('/api/locations/:id/report-token', async (req, res) => { await q('UPDATE locations SET report_token=NULL WHERE location_id=$1', [req.params.id]); res.json({ ok: true }); });
+app.get('/api/locations/:id/events', async (req, res) => {
+  const { rows } = await q(`SELECT event_type, count(*) AS n, max(occurred_at) AS last FROM events WHERE location_id=$1 GROUP BY 1 ORDER BY 2 DESC`, [req.params.id]);
+  res.json(rows);
 });
 
 app.get('/api/sources', (_req, res) => res.json(ALL_SOURCES));

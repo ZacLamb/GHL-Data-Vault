@@ -16,6 +16,15 @@ export function buildFilter(locationId, f = {}) {
   for (const field of arr(f.notFields)) where.push(`NOT EXISTS (SELECT 1 FROM files fx WHERE fx.location_id=c.location_id AND fx.contact_id=c.contact_id AND fx.status='done' AND fx.field_name = ${p(field)})`);
   if (arr(f.tags).length) where.push(`c.tags && ${p(arr(f.tags))}::text[]`);
   if (arr(f.states).length) where.push(`upper(c.state) = ANY(${p(arr(f.states).map(s => s.toUpperCase()))}::text[])`);
+  if (f.docsFrom || f.docsTo) {
+    const conds = [`fx.location_id=c.location_id`, `fx.contact_id=c.contact_id`, `fx.status='done'`];
+    if (f.docsFrom) conds.push(`fx.uploaded_at >= ${p(f.docsFrom)}`);
+    if (f.docsTo) conds.push(`fx.uploaded_at < ${p(f.docsTo)}::date + 1`);
+    if (f.docsField) conds.push(`fx.field_name = ${p(f.docsField)}`);
+    where.push(`EXISTS (SELECT 1 FROM files fx WHERE ${conds.join(' AND ')})`);
+  }
+  if (f.updatedFrom) where.push(`c.date_updated >= ${p(f.updatedFrom)}`);
+  if (f.updatedTo) where.push(`c.date_updated < ${p(f.updatedTo)}::date + 1`);
   if (f.addedFrom) where.push(`c.date_added >= ${p(f.addedFrom)}`);
   if (f.addedTo) where.push(`c.date_added < ${p(f.addedTo)}::date + 1`);
   if (f.customKey && f.customValue != null && f.customValue !== '') where.push(`c.custom->>${p(f.customKey)} ILIKE ${p('%' + f.customValue + '%')}`);
@@ -47,7 +56,7 @@ export async function summary(locationId) {
 }
 
 export async function breakdowns(locationId) {
-  const [fields, tags, states, months, sources] = await Promise.all([
+  const [fields, tags, states, months, sources, docMonths] = await Promise.all([
     q(`SELECT field_name AS key, count(DISTINCT contact_id) AS contacts, count(*) AS files FROM files
         WHERE location_id=$1 AND status='done' AND contact_id IS NOT NULL GROUP BY 1 ORDER BY 2 DESC`, [locationId]),
     q(`SELECT t AS key, count(*) AS contacts FROM contacts c, unnest(c.tags) t WHERE c.location_id=$1 GROUP BY 1 ORDER BY 2 DESC LIMIT 40`, [locationId]),
@@ -56,9 +65,13 @@ export async function breakdowns(locationId) {
         WHERE location_id=$1 AND date_added IS NOT NULL GROUP BY 1 ORDER BY 1`, [locationId]),
     q(`SELECT source AS key, count(*) AS files, count(*) FILTER (WHERE status='done') AS done, count(*) FILTER (WHERE status='failed') AS failed
         FROM files WHERE location_id=$1 GROUP BY 1 ORDER BY 2 DESC`, [locationId]),
+    q(`SELECT to_char(date_trunc('month', uploaded_at),'YYYY-MM') AS key, count(*) AS files, count(DISTINCT contact_id) AS contacts FROM files
+        WHERE location_id=$1 AND status='done' AND uploaded_at IS NOT NULL GROUP BY 1 ORDER BY 1`, [locationId]),
   ]);
+  const { rows: [undated] } = await q(`SELECT count(*) AS n FROM files WHERE location_id=$1 AND status='done' AND uploaded_at IS NULL`, [locationId]);
   const { rows: customKeys } = await q(`SELECT DISTINCT jsonb_object_keys(custom) AS key FROM contacts WHERE location_id=$1 ORDER BY 1`, [locationId]);
-  return { fields: fields.rows.map(num), tags: tags.rows.map(num), states: states.rows.map(num), months: months.rows.map(num), sources: sources.rows.map(num), customKeys: customKeys.map(r => r.key) };
+  return { fields: fields.rows.map(num), tags: tags.rows.map(num), states: states.rows.map(num), months: months.rows.map(num), sources: sources.rows.map(num),
+           docMonths: docMonths.rows.map(num), undatedFiles: Number(undated.n), customKeys: customKeys.map(r => r.key) };
 }
 
 export async function search(locationId, filters, { page = 1, limit = 50 } = {}) {

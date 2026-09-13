@@ -33,10 +33,10 @@ export async function ingest(jobId, locationId, url, meta = {}) {
     `INSERT INTO files (location_id, job_id, source, contact_id, opportunity_id, conversation_id, message_id,
         submission_id, document_id, field_id, field_name, original_filename, mime_type, size_bytes, source_url)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-     ON CONFLICT (location_id, source_url) DO UPDATE SET job_id = EXCLUDED.job_id
+     ON CONFLICT (location_id, source_url) DO UPDATE SET job_id = EXCLUDED.job_id, cdn_url = COALESCE(files.cdn_url, EXCLUDED.cdn_url)
      RETURNING *`,
     [locationId, jobId, meta.source, meta.contactId, meta.opportunityId, meta.conversationId, meta.messageId,
-     meta.submissionId, meta.documentId, meta.fieldId, meta.fieldName, meta.originalFilename, meta.mimeType, meta.size, url]);
+     meta.submissionId, meta.documentId, meta.fieldId, meta.fieldName, meta.originalFilename, meta.mimeType, meta.size, url, meta.altUrl || null]);
 
   if (existing.status === 'done') return existing; // already in R2 from a previous run
 
@@ -90,9 +90,10 @@ export async function ingest(jobId, locationId, url, meta = {}) {
     const result = await upload.done();
     const size = bytes || Number(res.headers.get('content-length')) || meta.size || null;
 
+    const lm = res.headers.get('last-modified'); const uploadedAt = lm && !isNaN(Date.parse(lm)) ? new Date(lm) : null;
     await q(`UPDATE files SET status='done', r2_key=$2, original_filename=COALESCE(original_filename,$3),
-             mime_type=COALESCE(mime_type,$4), size_bytes=COALESCE($5, size_bytes), downloaded_at=now(), error=NULL WHERE id=$1`,
-      [existing.id, key, filename, res.headers.get('content-type'), size]);
+             mime_type=COALESCE(mime_type,$4), size_bytes=COALESCE($5, size_bytes), uploaded_at=COALESCE($6, uploaded_at), downloaded_at=now(), error=NULL WHERE id=$1`,
+      [existing.id, key, filename, res.headers.get('content-type'), size, uploadedAt]);
     return { ...existing, status: 'done', r2_key: key, etag: result.ETag };
   } catch (err) {
     await q(`UPDATE files SET status='failed', error=$2 WHERE id=$1`, [existing.id, String(err.message).slice(0, 500)]);
