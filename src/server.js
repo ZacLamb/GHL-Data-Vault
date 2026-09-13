@@ -62,14 +62,18 @@ const csvCell = v => v == null ? '' : `"${String(v).replace(/"/g, '""')}"`;
 
 // --- locations ----------------------------------------------------------------------
 app.get('/api/locations', async (_req, res) => {
-  const { rows } = await q(`
-    SELECT l.location_id, l.name, (l.pit_token IS NOT NULL) AS has_pit, l.created_at,
-           (SELECT count(*) FROM files f WHERE f.location_id=l.location_id AND f.status='done')   AS files_done,
-           (SELECT count(*) FROM files f WHERE f.location_id=l.location_id AND f.status='failed') AS files_failed,
-           (SELECT coalesce(sum(size_bytes),0) FROM files f WHERE f.location_id=l.location_id AND f.status='done') AS bytes,
-           (SELECT row_to_json(j) FROM (SELECT id,status,sources,progress,since,created_at,finished_at FROM jobs WHERE location_id=l.location_id ORDER BY id DESC LIMIT 1) j) AS last_job
-    FROM locations l ORDER BY l.name NULLS LAST, l.location_id`);
-  res.json(rows);
+  try {
+    const { rows } = await q(`
+      WITH f AS (SELECT location_id, count(*) FILTER (WHERE status='done') AS files_done, count(*) FILTER (WHERE status='failed') AS files_failed,
+                        coalesce(sum(size_bytes) FILTER (WHERE status='done'),0) AS bytes FROM files GROUP BY location_id),
+           j AS (SELECT DISTINCT ON (location_id) location_id, id, status, sources, progress, since, created_at, finished_at FROM jobs ORDER BY location_id, id DESC)
+      SELECT l.location_id, l.name, (l.pit_token IS NOT NULL) AS has_pit, l.created_at,
+             coalesce(f.files_done,0) AS files_done, coalesce(f.files_failed,0) AS files_failed, coalesce(f.bytes,0) AS bytes,
+             CASE WHEN j.id IS NULL THEN NULL ELSE json_build_object('id',j.id,'status',j.status,'sources',j.sources,'progress',j.progress,'since',j.since,'created_at',j.created_at,'finished_at',j.finished_at) END AS last_job
+      FROM locations l LEFT JOIN f ON f.location_id=l.location_id LEFT JOIN j ON j.location_id=l.location_id
+      ORDER BY l.name NULLS LAST, l.location_id`);
+    res.json(rows);
+  } catch (err) { console.error('locations', err); res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/locations', async (req, res) => {

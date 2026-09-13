@@ -51,6 +51,7 @@
 <header>
   <h1>GHL Vault<small>file exporter</small></h1>
   <div class="sp"></div>
+  <span id="conn" class="id" style="margin-right:12px"></span>
   <a href="/usage.html" style="color:var(--blue);margin-right:16px">usage analytics →</a>
   <button id="importAgency" title="Pull every sub-account via the agency token">Import sub-accounts</button>
 </header>
@@ -76,41 +77,48 @@ let SOURCES=[];
 async function loadSources(){SOURCES=await api('/api/sources');const box=$('#srcs');
   SOURCES.forEach(s=>{const l=document.createElement('label');l.innerHTML=`<input type=checkbox value="${s}" checked> ${s}`;box.appendChild(l)})}
 const chosen=()=>[...document.querySelectorAll('#srcs input:checked')].map(i=>i.value);
+let loading=false;
 async function load(){
-  const locs=await api('/api/locations');const box=$('#rows');box.innerHTML='';
-  if(!locs.length){box.innerHTML='<div class="row"><div class="id">No locations yet — add one above or import the agency.</div></div>';return}
+  if(loading)return;loading=true;
+  let locs;
+  try{const r=await fetch('/api/locations');if(!r.ok)throw new Error(r.status);locs=await r.json();if(!Array.isArray(locs))throw new Error('bad payload');$('#conn')&&($('#conn').textContent='')}
+  catch(e){const c=$('#conn');if(c)c.textContent='reconnecting…';loading=false;return}   // keep what's on screen
+  finally{}
+  const box=$('#rows');
+  if(!locs.length){if(!box.querySelector('.row'))box.innerHTML='<div class="row"><div class="id">No locations yet — add one above or import the agency.</div></div>';loading=false;return}
+  const seen=new Set();
   for(const l of locs){
-    const j=l.last_job;
-    const cf=j?.progress?.contact_fields;let live='';
-    if(cf&&j.status==='running'){
-      if(cf.phase==='A')live=`A · reading contacts ${Number(cf.contactsSeen||0).toLocaleString()}${cf.total?' / '+Number(cf.total).toLocaleString():''}`;
-      else if(cf.phase==='B'){const left=(cf.candidates||0)-(cf.fetched||0);const eta=cf.ratePerMin?Math.ceil(left/cf.ratePerMin):null;
-        live=`B · ${Number(cf.fetched||0).toLocaleString()} / ${Number(cf.candidates||0).toLocaleString()} contacts with docs · ${Number(cf.filesFound||0).toLocaleString()} files${cf.ratePerMin?` · ${cf.ratePerMin}/min`:''}${eta!=null?` · ~${eta} min left`:''}`}
-    }
-    const prog=j?Object.entries(j.progress||{}).map(([k,v])=>`${k}: ${v.status||'…'}${v.contactsSeen!=null?` · ${v.contactsSeen.toLocaleString()} contacts read`:''}${v.candidatesTotal!=null?` · ${v.candidatesTotal.toLocaleString()} with docs`:''}${v.fetched!=null?` · ${v.fetched.toLocaleString()} fetched`:''}${v.filesFound!=null?` · ${v.filesFound.toLocaleString()} files found`:''}${v.mode?` · mode=${v.mode}`:''} ${v.error?'✗ '+v.error:''}${v.note?' · '+v.note:''}`).join('\n'):'';
-    const d=document.createElement('div');d.className='row';
-    d.innerHTML=`
+    seen.add(l.location_id);
+    const j=l.last_job;const prog=j?Object.entries(j.progress||{}).map(([k,v])=>`${k}: ${v.status||'…'}${v.contactsSeen!=null?` · ${v.contactsSeen.toLocaleString()} contacts read`:''}${v.candidatesTotal!=null?` · ${v.candidatesTotal.toLocaleString()} with docs`:''}${v.fetched!=null?` · ${v.fetched.toLocaleString()} fetched`:''}${v.filesFound!=null?` · ${v.filesFound.toLocaleString()} files found`:''}${v.users!=null?` · ${v.users} users`:''}${v.mode?` · mode=${v.mode}`:''} ${v.error?'✗ '+v.error:''}${v.note?' · '+v.note:''}`).join('\n'):'';
+    let d=box.querySelector(`.row[data-loc="${l.location_id}"]`);
+    const wasOpen=d?.querySelector('details')?.open;
+    const html=`
       <div><div class="name">${l.name||'(unnamed)'}</div><div class="id" title="click to copy" style="cursor:pointer" onclick="navigator.clipboard.writeText('${l.location_id}');toast('Copied')">${l.location_id} ${l.has_pit?'· PIT':'· agency'}</div></div>
-      <div>${j?`<span class="pill ${j.status}">${j.status}</span> <span class="id">#${j.id}${j.since?' sync':''} ${fmtD(j.finished_at||j.created_at)}</span>${prog?`<details><summary>progress</summary><pre>${prog}</pre></details>`:''}`:'<span class="id">never run</span>'}</div>
-      <div class="stat"><b>${l.files_done}</b> done${Number(l.files_failed)?` · <span class="f">${l.files_failed} failed</span>`:''}</div>
+      <div>${j?`<span class="pill ${j.status}">${j.status}</span> <span class="id">#${j.id}${j.since?' sync':''} ${fmtD(j.finished_at||j.created_at)}</span>${prog?`<details${wasOpen?' open':''}><summary>progress</summary><pre>${prog}</pre></details>`:''}`:'<span class="id">never run</span>'}</div>
+      <div class="stat"><b>${Number(l.files_done).toLocaleString()}</b> done${Number(l.files_failed)?` · <span class="f">${Number(l.files_failed).toLocaleString()} failed</span>`:''}</div>
       <div>${fmtB(l.bytes)}</div>
       <div class="actions"><a href="/analytics.html?loc=${l.location_id}" style="color:var(--amber)">documents →</a><a href="/usage.html?loc=${l.location_id}" style="color:var(--blue)">usage →</a><a href="/api/locations/${l.location_id}/manifest.csv">manifest.csv</a><a href="/api/locations/${l.location_id}/export.zip">export.zip</a>${Number(l.files_failed)?`<a href="/api/locations/${l.location_id}/failures" style="color:var(--red)">failures</a>`:''}</div>
       <div class="actions">${j&&['running','queued'].includes(j.status)?`<button data-cancel="${j.id}">Stop</button>`:`<button class="primary" data-run="${l.location_id}">Run export</button>${j&&j.status==='done'?`<button data-sync="${l.location_id}" title="Only contacts updated since the last completed export">Sync new</button>`:''}`}${j&&['cancelled','failed'].includes(j.status)?`<button data-resume="${j.id}">Resume</button>`:''}${j&&Number(l.files_failed)?`<button data-retry="${j.id}">Retry failed</button>`:''}</div>
       <div class="pkgs" id="pkgs-${l.location_id}"></div>
       <div class="actions" style="grid-column:1/-1;justify-content:flex-end;margin-top:6px"><button class="danger" data-reset="${l.location_id}">Reset data</button><button class="danger" data-del="${l.location_id}">Delete location</button></div>`;
-    box.appendChild(d);
-    renderPackages(l.location_id);
+    if(!d){d=document.createElement('div');d.className='row';d.dataset.loc=l.location_id;d.innerHTML=html;box.appendChild(d);renderPackages(l.location_id)}
+    else if(d.dataset.html!==html){const pk=d.querySelector('.pkgs')?.innerHTML||'';d.innerHTML=html;d.querySelector('.pkgs').innerHTML=pk;renderPackages(l.location_id)}
+    d.dataset.html=html;
   }
+  box.querySelectorAll('.row').forEach(r=>{if(r.dataset.loc&&!seen.has(r.dataset.loc))r.remove();if(!r.dataset.loc&&locs.length)r.remove()});
+  loading=false;
 }
 async function renderPackages(loc){
   const [pool,pkgs]=await Promise.all([api(`/api/locations/${loc}/pool`),api(`/api/packages?locationId=${loc}`)]);
   const el=document.getElementById(`pkgs-${loc}`);if(!el)return;
+  const prev=el.innerHTML;
   const fmtN=n=>Number(n).toLocaleString();
-  el.innerHTML=`<div class="bar"><span>PACKAGE · ${fmtN(pool.available)} of ${fmtN(pool.total)} contacts not yet packaged</span>
+  const next=`<div class="bar"><span>PACKAGE · ${fmtN(pool.available)} of ${fmtN(pool.total)} contacts not yet packaged</span>
     ${pool.sizes.map(s=>`<button data-pkg="${loc}" data-size="${s}" ${s>pool.available?'disabled title="not enough unassigned contacts"':''}>${s>=1000?s/1000+'k':s}</button>`).join('')}</div>`+
     pkgs.map(p=>`<div class="pkgrow"><span class="pill ${p.status}">${p.status}</span><b>#${p.id}</b><span>${fmtN(p.contact_count)} contacts · ${p.status==='done'?fmtN(p.file_count)+' files':`${fmtN(p.progress.copied||0)}/${fmtN(p.progress.total||'?')} copied`}${p.progress.failed?` · <span class="f">${p.progress.failed} failed</span>`:''}</span>
       ${p.status==='done'?`<a href="/api/packages/${p.id}/contacts.csv">contacts.csv</a><a href="/api/packages/${p.id}/manifest.csv">manifest.csv</a><a href="/api/packages/${p.id}/export.zip">export.zip</a><span class="id">R2: ${p.r2_prefix}</span>`:''}
       <button data-dissolve="${p.id}" title="Release these contacts back into the pool">dissolve</button></div>`).join('');
+  if(next!==prev)el.innerHTML=next;
 }
 document.addEventListener('click',async e=>{
   const pb=e.target.closest('button[data-pkg]');
