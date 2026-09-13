@@ -15,7 +15,7 @@ export async function fileDates(ctx) {
       const url = cdn || f.source_url;
       const headers = cdn ? {} : { Authorization: `Bearer ${await getToken(locationId)}`, Version: process.env.GHL_API_VERSION || '2021-07-28' };
       let lm = null;
-      try { const r = await fetch(url, { method: 'HEAD', headers, redirect: 'follow', signal: AbortSignal.timeout(30_000) }); lm = r.headers.get('last-modified'); } catch {}
+      try { const r = await fetch(url, { method: 'HEAD', headers, redirect: 'follow', signal: AbortSignal.timeout(30_000) }); lm = r.headers.get('last-modified'); await r.body?.cancel().catch(() => {}); } catch {}
       progress.checked++;
       if (lm && !isNaN(Date.parse(lm))) { progress.dated++; await q('UPDATE files SET uploaded_at=$2 WHERE id=$1', [f.id, new Date(lm)]); }
       else { progress.noHeader++; await q(`UPDATE files SET error='no last-modified' WHERE id=$1`, [f.id]); }

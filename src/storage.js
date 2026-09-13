@@ -11,6 +11,9 @@ export const r2 = new S3Client({
 });
 const BUCKET = process.env.R2_BUCKET;
 
+// Always drain/cancel a response we won't read, otherwise the socket stays open (ephemeral-port exhaustion).
+export const discard = r => r?.body?.cancel().catch(() => {}) ?? Promise.resolve();
+
 const safe = s => String(s || '').replace(/[^\w.\-()+ ]+/g, '_').slice(0, 150);
 
 function filenameFrom(url, headers, fallback) {
@@ -31,8 +34,8 @@ function filenameFrom(url, headers, fallback) {
 export async function ingest(jobId, locationId, url, meta = {}) {
   const { rows: [existing] } = await q(
     `INSERT INTO files (location_id, job_id, source, contact_id, opportunity_id, conversation_id, message_id,
-        submission_id, document_id, field_id, field_name, original_filename, mime_type, size_bytes, source_url)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+        submission_id, document_id, field_id, field_name, original_filename, mime_type, size_bytes, source_url, cdn_url)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
      ON CONFLICT (location_id, source_url) DO UPDATE SET job_id = EXCLUDED.job_id, cdn_url = COALESCE(files.cdn_url, EXCLUDED.cdn_url)
      RETURNING *`,
     [locationId, jobId, meta.source, meta.contactId, meta.opportunityId, meta.conversationId, meta.messageId,
@@ -55,6 +58,7 @@ export async function ingest(jobId, locationId, url, meta = {}) {
         try {
           const r = await fetch(c.u, { headers, redirect: 'follow', signal: AbortSignal.timeout(5 * 60_000) });
           if (r.ok && r.body) { res = r; break outer; }
+          await discard(r);
           lastErr = new Error(`HTTP ${r.status} from ${new URL(c.u).host}`);
           if (r.status < 500 && r.status !== 429) break;          // 4xx: don't retry this candidate
         } catch (e) { lastErr = new Error(`${e.cause?.code || e.name || 'fetch failed'}: ${e.message}`); }

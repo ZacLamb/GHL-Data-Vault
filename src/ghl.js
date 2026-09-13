@@ -66,12 +66,14 @@ export async function ghl(locationId, method, path, { query, body, raw = false }
     });
 
     if (res.status === 429 || res.status >= 500) {
+      await res.body?.cancel().catch(() => {});
       const retryAfter = Number(res.headers.get('retry-after')) || 0;
       await sleep(Math.max(retryAfter * 1000, 1000 * 2 ** attempt));
       continue;
     }
     if (res.status === 401 && attempt === 0) {
       // token may have expired mid-run: clear cached oauth token and retry once
+      await res.body?.cancel().catch(() => {});
       await q('UPDATE locations SET oauth_expires=NULL WHERE location_id=$1', [locationId]);
       continue;
     }
