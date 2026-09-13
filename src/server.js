@@ -176,23 +176,56 @@ app.get('/api/locations/:id/manifest.csv', async (req, res) => {
   res.end();
 });
 
-const ZIP_MAX_FILES = Number(process.env.ZIP_MAX_FILES || 5000);
-app.get('/api/locations/:id/export.zip', async (req, res) => {
-  const { rows } = await q(`SELECT r2_key FROM files WHERE location_id=$1 AND status='done' AND r2_key IS NOT NULL`, [req.params.id]);
-  if (rows.length > ZIP_MAX_FILES) {
-    return res.status(413).type('text/plain').send(
-      `This location has ${rows.length} files — too many to zip through the server.\n` +
-      `Pull it straight from R2 instead:\n\n` +
-      `  rclone sync r2:${process.env.R2_BUCKET}/${req.params.id} ./${req.params.id}\n\n` +
-      `(rclone config: type=s3, provider=Cloudflare, endpoint=https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com)\n` +
-      `Or use manifest.csv to look up individual files by contact ID.\n`);
-  }
-  res.set('Content-Type', 'application/zip').set('Content-Disposition', `attachment; filename="${req.params.id}-files.zip"`);
+const ZIP_MAX_FILES = Number(process.env.ZIP_MAX_FILES || 25000);
+const ZIP_PART_FILES = Number(process.env.ZIP_PART_FILES || 2000);
+
+async function locationZipRows(locationId) {
+  const { rows } = await q(`SELECT r2_key, size_bytes FROM files WHERE location_id=$1 AND status='done' AND r2_key IS NOT NULL ORDER BY r2_key`, [locationId]);
+  return rows;
+}
+function streamZip(res, filename, rows, stripPrefix) {
+  res.set('Content-Type', 'application/zip').set('Content-Disposition', `attachment; filename="${filename}"`);
   const zip = archiver('zip', { zlib: { level: 1 } }); // most content is already compressed
   zip.on('error', err => { console.error(err); res.destroy(err); });
   zip.pipe(res);
-  for (const { r2_key } of rows) zip.append(await getObjectStream(r2_key), { name: r2_key });
-  zip.finalize();
+  (async () => {
+    for (const { r2_key } of rows) zip.append(await getObjectStream(r2_key), { name: stripPrefix ? r2_key.replace(stripPrefix, '') : r2_key });
+    zip.finalize();
+  })().catch(err => { console.error(err); res.destroy(err); });
+}
+
+// Export page: lists parts (chunked zips) + manifest + rclone alternative.
+app.get('/api/locations/:id/export', async (req, res) => {
+  const rows = await locationZipRows(req.params.id);
+  const parts = Math.ceil(rows.length / ZIP_PART_FILES);
+  const fmtB = n => { const u = ['B','KB','MB','GB','TB']; let i = 0; n = Number(n || 0); while (n >= 1024 && i < 4) { n /= 1024; i++; } return n.toFixed(i ? 1 : 0) + ' ' + u[i]; };
+  const partInfo = Array.from({ length: parts }, (_, i) => { const slice = rows.slice(i * ZIP_PART_FILES, (i + 1) * ZIP_PART_FILES); return { n: i + 1, files: slice.length, bytes: slice.reduce((a, r) => a + Number(r.size_bytes || 0), 0) }; });
+  const total = rows.reduce((a, r) => a + Number(r.size_bytes || 0), 0);
+  res.type('html').send(`<!doctype html><meta charset="utf-8"><title>Export ${req.params.id}</title>
+  <style>body{font:14px/1.6 ui-monospace,monospace;background:#0f1210;color:#e6e9e4;padding:32px;max-width:900px}a{color:#6fb3ff}h1{font-weight:600;font-size:18px}
+  table{border-collapse:collapse;margin:16px 0}td,th{padding:6px 14px 6px 0;text-align:left;border-bottom:1px solid #263029}small{color:#8a948c}pre{background:#151a16;padding:12px;border-radius:3px;overflow-x:auto}</style>
+  <h1>Export · ${req.params.id}</h1>
+  <p>${rows.length.toLocaleString()} files · ${fmtB(total)} total. Each part is a separate zip; download them one at a time and keep the tab open until each finishes.</p>
+  <p><a href="/api/locations/${req.params.id}/manifest.csv">manifest.csv</a> (join key for everything below)${rows.length <= ZIP_MAX_FILES ? ` · <a href="/api/locations/${req.params.id}/export.zip">single zip of everything</a> (${fmtB(total)})` : ''}</p>
+  <table><tr><th>Part</th><th>Files</th><th>Size</th><th></th></tr>
+  ${partInfo.map(p => `<tr><td>${p.n} of ${parts}</td><td>${p.files.toLocaleString()}</td><td>${fmtB(p.bytes)}</td><td><a href="/api/locations/${req.params.id}/export.zip?part=${p.n}">download part ${p.n}</a></td></tr>`).join('')}
+  </table>
+  <p><small>Fastest alternative if you have a terminal:</small></p>
+  <pre>rclone sync r2:${process.env.R2_BUCKET}/${req.params.id} ./${req.params.id}
+# rclone config: type=s3, provider=Cloudflare, endpoint=https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com</pre>
+  <p><a href="/">← back</a></p>`);
+});
+
+app.get('/api/locations/:id/export.zip', async (req, res) => {
+  const rows = await locationZipRows(req.params.id);
+  const part = Number(req.query.part);
+  if (part) {
+    const slice = rows.slice((part - 1) * ZIP_PART_FILES, part * ZIP_PART_FILES);
+    if (!slice.length) return res.status(404).send('no such part');
+    return streamZip(res, `${req.params.id}-part${part}.zip`, slice);
+  }
+  if (rows.length > ZIP_MAX_FILES) return res.redirect(`/api/locations/${req.params.id}/export`);
+  streamZip(res, `${req.params.id}-files.zip`, rows);
 });
 
 // --- packages -------------------------------------------------------------------------
