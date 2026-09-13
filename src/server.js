@@ -184,14 +184,29 @@ async function locationZipRows(locationId) {
   return rows;
 }
 function streamZip(res, filename, rows, stripPrefix) {
-  res.set('Content-Type', 'application/zip').set('Content-Disposition', `attachment; filename="${filename}"`);
-  const zip = archiver('zip', { zlib: { level: 1 } }); // most content is already compressed
-  zip.on('error', err => { console.error(err); res.destroy(err); });
+  res.set('Content-Type', 'application/zip').set('Content-Disposition', `attachment; filename="${filename}"`)
+     .set('Cache-Control', 'no-store').set('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+  const zip = archiver('zip', { store: true }); // PDFs/images don't compress; store mode keeps the stream fast
+  zip.on('error', err => { console.error('zip', err.message); res.destroy(err); });
+  zip.on('warning', err => console.warn('zip warning', err.message));
   zip.pipe(res);
+  let aborted = false; res.on('close', () => { aborted = true; });
   (async () => {
-    for (const { r2_key } of rows) zip.append(await getObjectStream(r2_key), { name: stripPrefix ? r2_key.replace(stripPrefix, '') : r2_key });
+    const missing = [];
+    for (const { r2_key } of rows) {
+      if (aborted) return;
+      let body;
+      try { body = await getObjectStream(r2_key); } catch (err) { missing.push(`${r2_key}\t${err.name || err.message}`); continue; }
+      await new Promise((resolve, reject) => {
+        body.once('error', reject);
+        zip.append(body, { name: stripPrefix ? r2_key.replace(stripPrefix, '') : r2_key });
+        zip.once('entry', resolve);      // wait for each entry so we never queue thousands of open R2 streams
+      }).catch(err => { missing.push(`${r2_key}\t${err.message}`); });
+    }
+    if (missing.length) zip.append(missing.join('\n'), { name: '_missing.txt' });
     zip.finalize();
-  })().catch(err => { console.error(err); res.destroy(err); });
+  })().catch(err => { console.error('zip stream', err.message); res.destroy(err); });
 }
 
 // Export page: lists parts (chunked zips) + manifest + rclone alternative.
