@@ -70,7 +70,10 @@ export async function tick() {
       });
     }
   } catch (err) {
-    console.error('runner error', err);
+    // DB unreachable: one short line, try again next tick (no stack traces every 5s).
+    const code = err.code || err.errors?.[0]?.code;
+    if (code) console.error(`runner: database unreachable (${code}); will retry`);
+    else console.error('runner error', err);
   }
 }
 

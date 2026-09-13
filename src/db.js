@@ -2,12 +2,39 @@ import pg from 'pg';
 
 export const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
+  max: Number(process.env.PG_POOL_MAX || 10),
+  connectionTimeoutMillis: 10_000,
+  idleTimeoutMillis: 30_000,
+  keepAlive: true,
   // Railway's internal Postgres URL (postgres.railway.internal) does NOT support SSL and errors if you force it.
   // Only enable SSL when explicitly asked (e.g. using the public proxy URL).
   ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
 });
 
-export const q = (text, params) => pool.query(text, params);
+// Background errors on idle clients (e.g. Postgres restarted) must not crash the process.
+pool.on('error', err => console.error('pg pool:', err.code || err.message));
+
+const TRANSIENT = new Set(['EADDRNOTAVAIL', 'ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'ETIMEDOUT', 'EAI_AGAIN', '57P01', '57P02', '57P03', '08006', '08001', '08003']);
+const isTransient = err => TRANSIENT.has(err?.code) || (err?.errors || []).some(e => TRANSIENT.has(e.code)) || /terminat|Connection terminated|timeout exceeded/i.test(err?.message || '');
+export let dbDown = false;
+
+// Query with retry on connection-level failures (network blip, Postgres restart). Up to ~15s total.
+export async function q(text, params) {
+  let lastErr;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const r = await pool.query(text, params);
+      if (dbDown) { dbDown = false; console.log('pg: connection restored'); }
+      return r;
+    } catch (err) {
+      if (!isTransient(err)) throw err;
+      lastErr = err;
+      if (!dbDown) { dbDown = true; console.error(`pg: connection problem (${err.code || (err.errors?.[0]?.code) || err.message}) — retrying`); }
+      await new Promise(r => setTimeout(r, 500 * 2 ** attempt));
+    }
+  }
+  throw lastErr;
+}
 
 export async function migrate() {
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is not set — add the Postgres plugin and reference its DATABASE_URL in this service\'s variables');
