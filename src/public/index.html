@@ -15,8 +15,18 @@
   h1 small{font:12px "IBM Plex Mono",monospace;color:var(--amber);letter-spacing:.2em;text-transform:uppercase;margin-left:12px;vertical-align:middle}
   header .sp{flex:1}
   main{padding:20px 36px 60px;max-width:1240px}
-  .row{display:grid;grid-template-columns:1.3fr 1.4fr 1fr 1fr 1.2fr 1.6fr;gap:14px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line)}
-  .row.head{color:var(--dim);font-size:11px;letter-spacing:.14em;text-transform:uppercase;border-bottom-color:var(--amber)}
+  .row{display:grid;grid-template-columns:1.4fr 1.6fr 1fr;gap:14px 24px;align-items:start;padding:16px 14px;border-bottom:1px solid var(--line)}
+  .row.head{color:var(--dim);font-size:11px;letter-spacing:.14em;text-transform:uppercase;border-bottom-color:var(--amber);padding:8px 14px}
+  .groups{grid-column:1/-1;display:flex;gap:28px;flex-wrap:wrap;margin-top:4px}
+  .group{display:flex;flex-direction:column;gap:6px}
+  .group .gl{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+  .group .gb{display:flex;gap:6px;flex-wrap:wrap}
+  .btn{display:inline-block;padding:6px 11px;border:1px solid var(--line);border-radius:2px;color:var(--ink);background:var(--panel);text-decoration:none;font-size:12px;cursor:pointer;line-height:1.3}
+  .btn:hover{border-color:var(--amber);color:var(--amber);text-decoration:none}
+  .btn.amber{border-color:var(--amber);color:var(--amber)}.btn.blue{border-color:var(--blue);color:var(--blue)}.btn.blue:hover{filter:brightness(1.15)}
+  .btn.red{color:var(--red)}.btn.red:hover{border-color:var(--red)}
+  .btn.primary{background:var(--amber);color:#1b1608;border-color:var(--amber);font-weight:600}.btn.primary:hover{filter:brightness(1.08);color:#1b1608}
+  .stats{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--dim)}.stats b{color:var(--ink);font-size:14px}
   .row:not(.head):hover{background:rgba(255,255,255,.025)}
   .id{color:var(--dim);font-size:11px}
   .name{font-weight:600}
@@ -40,8 +50,8 @@
   .srcs label{display:flex;gap:4px;align-items:center;cursor:pointer}
   .pkgs{grid-column:1/-1;border-top:1px dashed var(--line);margin-top:8px;padding-top:10px}
   .pkgs .bar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
-  .pkgs .bar span{color:var(--dim);font-size:11px;margin-right:6px}
-  .pkgs button{padding:4px 9px;font-size:12px}
+  .pkgs .bar span{color:var(--dim);font-size:11px;margin-right:6px}.pkgs .bar .gl{font-size:10px;letter-spacing:.16em;text-transform:uppercase}
+  .pkgs button{padding:4px 9px;font-size:12px}.pkgrow .btn{padding:3px 8px;font-size:11px}
   .pkgrow{display:flex;gap:14px;align-items:center;padding:5px 0;font-size:12px;color:var(--dim)}
   .pkgrow b{color:var(--ink)}
   @media(max-width:900px){.row{grid-template-columns:1fr 1fr;gap:8px}.row.head{display:none}}
@@ -63,7 +73,7 @@
     <button class="primary" id="addLoc">Add / update location</button>
   </div>
   <div class="srcs" id="srcs"><span>Sources for new runs:</span></div>
-  <div class="row head"><div>Location</div><div>Last run</div><div>Files</div><div>Size</div><div>Downloads</div><div>Actions</div></div>
+  <div class="row head"><div>Location</div><div>Last run</div><div>Vault</div></div>
   <div id="rows"></div>
 </main>
 <div class="toast" id="toast"></div>
@@ -92,15 +102,18 @@ async function load(){
     const j=l.last_job;const prog=j?Object.entries(j.progress||{}).map(([k,v])=>`${k}: ${v.status||'…'}${v.contactsSeen!=null?` · ${v.contactsSeen.toLocaleString()} contacts read`:''}${v.candidatesTotal!=null?` · ${v.candidatesTotal.toLocaleString()} with docs`:''}${v.fetched!=null?` · ${v.fetched.toLocaleString()} fetched`:''}${v.filesFound!=null?` · ${v.filesFound.toLocaleString()} files found`:''}${v.users!=null?` · ${v.users} users`:''}${v.mode?` · mode=${v.mode}`:''} ${v.error?'✗ '+v.error:''}${v.note?' · '+v.note:''}`).join('\n'):'';
     let d=box.querySelector(`.row[data-loc="${l.location_id}"]`);
     const wasOpen=d?.querySelector('details')?.open;
+    const running=j&&['running','queued'].includes(j.status);
     const html=`
       <div><div class="name">${l.name||'(unnamed)'}</div><div class="id" title="click to copy" style="cursor:pointer" onclick="navigator.clipboard.writeText('${l.location_id}');toast('Copied')">${l.location_id} ${l.has_pit?'· PIT':'· agency'}</div></div>
       <div>${j?`<span class="pill ${j.status}">${j.status}</span> <span class="id">#${j.id}${j.since?' sync':''} ${fmtD(j.finished_at||j.created_at)}</span>${prog?`<details${wasOpen?' open':''}><summary>progress</summary><pre>${prog}</pre></details>`:''}`:'<span class="id">never run</span>'}</div>
-      <div class="stat"><b>${Number(l.files_done).toLocaleString()}</b> done${Number(l.files_failed)?` · <span class="f">${Number(l.files_failed).toLocaleString()} failed</span>`:''}</div>
-      <div>${fmtB(l.bytes)}</div>
-      <div class="actions"><a href="/analytics.html?loc=${l.location_id}" style="color:var(--amber)">documents →</a><a href="/usage.html?loc=${l.location_id}" style="color:var(--blue)">usage →</a><a href="/api/locations/${l.location_id}/manifest.csv">manifest.csv</a><a href="/api/locations/${l.location_id}/export">download files</a>${Number(l.files_failed)?`<a href="/api/locations/${l.location_id}/failures" style="color:var(--red)">failures</a>`:''}</div>
-      <div class="actions">${j&&['running','queued'].includes(j.status)?`<button data-cancel="${j.id}">Stop</button>`:`<button class="primary" data-run="${l.location_id}">Run export</button>${j&&j.status==='done'?`<button data-sync="${l.location_id}" title="Only contacts updated since the last completed export">Sync new</button>`:''}`}${j&&['cancelled','failed'].includes(j.status)?`<button data-resume="${j.id}">Resume</button>`:''}${j&&Number(l.files_failed)?`<button data-retry="${j.id}">Retry failed</button>`:''}</div>
+      <div class="stats"><span><b>${Number(l.files_done).toLocaleString()}</b> files</span><span><b>${fmtB(l.bytes)}</b></span>${Number(l.files_failed)?`<span class="f"><b class="f">${Number(l.files_failed).toLocaleString()}</b> failed</span>`:''}</div>
+      <div class="groups">
+        <div class="group"><span class="gl">Crawl GHL</span><div class="gb">${running?`<button class="btn" data-cancel="${j.id}">Stop</button>`:`<button class="btn primary" data-run="${l.location_id}" title="Full crawl of the selected sources">Run export</button>${j&&j.status==='done'?`<button class="btn" data-sync="${l.location_id}" title="Only contacts updated since the last completed export">Sync new</button>`:''}`}${j&&['cancelled','failed'].includes(j.status)?`<button class="btn" data-resume="${j.id}">Resume</button>`:''}${j&&Number(l.files_failed)?`<button class="btn" data-retry="${j.id}">Retry failed</button>`:''}</div></div>
+        <div class="group"><span class="gl">Analyze</span><div class="gb"><a class="btn amber" href="/analytics.html?loc=${l.location_id}">Documents</a><a class="btn blue" href="/usage.html?loc=${l.location_id}">Usage</a></div></div>
+        <div class="group"><span class="gl">Export</span><div class="gb"><a class="btn" href="/api/locations/${l.location_id}/export" title="Zip parts with contacts.csv + manifest + all documents, downloaded straight from R2">Download files</a><a class="btn" href="/api/locations/${l.location_id}/manifest.csv">Manifest CSV</a>${Number(l.files_failed)?`<a class="btn red" href="/api/locations/${l.location_id}/failures">Failures</a>`:''}</div></div>
+      </div>
       <div class="pkgs" id="pkgs-${l.location_id}"></div>
-      <div class="actions" style="grid-column:1/-1;justify-content:flex-end;margin-top:6px"><button class="danger" data-reset="${l.location_id}">Reset data</button><button class="danger" data-del="${l.location_id}">Delete location</button></div>`;
+      <div class="actions" style="grid-column:1/-1;justify-content:flex-end;margin-top:2px"><span class="id" style="margin-right:auto"></span><button class="btn red" data-reset="${l.location_id}">Reset data</button><button class="btn red" data-del="${l.location_id}">Delete location</button></div>`;
     if(!d){d=document.createElement('div');d.className='row';d.dataset.loc=l.location_id;d.innerHTML=html;box.appendChild(d);renderPackages(l.location_id)}
     else if(d.dataset.html!==html){const pk=d.querySelector('.pkgs')?.innerHTML||'';d.innerHTML=html;d.querySelector('.pkgs').innerHTML=pk;renderPackages(l.location_id)}
     d.dataset.html=html;
@@ -113,11 +126,11 @@ async function renderPackages(loc){
   const el=document.getElementById(`pkgs-${loc}`);if(!el)return;
   const prev=el.innerHTML;
   const fmtN=n=>Number(n).toLocaleString();
-  const next=`<div class="bar"><span>PACKAGE · ${fmtN(pool.available)} of ${fmtN(pool.total)} contacts not yet packaged</span>
+  const next=`<div class="bar"><span class="gl">Rep packages · ${fmtN(pool.available)} of ${fmtN(pool.total)} contacts not yet packaged · random</span>
     ${pool.sizes.map(s=>`<button data-pkg="${loc}" data-size="${s}" ${s>pool.available?'disabled title="not enough unassigned contacts"':''}>${s>=1000?s/1000+'k':s}</button>`).join('')}</div>`+
     pkgs.map(p=>`<div class="pkgrow"><span class="pill ${p.status}">${p.status}</span><b>#${p.id}</b>${p.locked===false?'<span class="id">export</span>':''}<span>${fmtN(p.contact_count)} contacts · ${p.status==='done'?fmtN(p.file_count)+' files':`${fmtN(p.progress.copied||0)}/${fmtN(p.progress.total||'?')} copied`}${p.progress.failed?` · <span class="f">${p.progress.failed} failed</span>`:''}</span>
-      ${p.status==='done'?`<a href="/api/packages/${p.id}/contacts.csv">contacts.csv</a><a href="/api/packages/${p.id}/manifest.csv">manifest.csv</a><a href="/api/packages/${p.id}/export">download files</a><span class="id">R2: ${p.r2_prefix}</span>`:''}
-      <button data-dissolve="${p.id}" title="Release these contacts back into the pool">dissolve</button></div>`).join('');
+      ${p.status==='done'?`<a class="btn" href="/api/packages/${p.id}/export">Download files</a><a class="btn" href="/api/packages/${p.id}/contacts.csv">Contacts CSV</a><a class="btn" href="/api/packages/${p.id}/manifest.csv">Manifest CSV</a><span class="id">${p.r2_prefix}</span>`:''}
+      <button class="btn red" data-dissolve="${p.id}" title="${p.locked===false?'Delete this export record':'Release these contacts back into the pool'}">${p.locked===false?'remove':'dissolve'}</button></div>`).join('');
   if(next!==prev)el.innerHTML=next;
 }
 document.addEventListener('click',async e=>{
