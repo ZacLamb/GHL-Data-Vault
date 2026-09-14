@@ -48,6 +48,25 @@ app.get('/api/report/:token', async (req, res) => {
   res.json({ name: loc.name, summary: s, users: users.map(u => ({ ...u, email: undefined })), daily });
 });
 
+app.get('/share/:token', async (req, res) => {
+  const { rows: [sh] } = await q(`SELECT s.*, l.name FROM shares s JOIN locations l ON l.location_id=s.location_id WHERE s.token=$1`, [req.params.token]);
+  if (!sh) return res.status(404).send('This share link does not exist.');
+  if (new Date(sh.expires_at) < new Date()) return res.status(410).send('This share link has expired.');
+  const { rows: parts } = await q(`SELECT * FROM bundles WHERE location_id=$1 AND scope=$2 ORDER BY part`, [sh.location_id, sh.scope]);
+  const links = await Promise.all(parts.map(async b => ({ ...b, url: b.status === 'done' ? await presign(b.r2_key, b.r2_key.split('/').pop(), 6 * 3600) : null })));
+  const fmt = n => { const u = ['B','KB','MB','GB','TB']; let i = 0; n = Number(n || 0); while (n >= 1024 && i < 4) { n /= 1024; i++; } return n.toFixed(i ? 1 : 0) + ' ' + u[i]; };
+  const ready = links.filter(b => b.url);
+  res.type('html').send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${sh.label || sh.name || 'Export'}</title>
+  <style>body{font:15px/1.6 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;background:#fbfaf7;color:#1c1b18;max-width:760px;margin:0 auto;padding:40px 24px}h1{font-size:22px;margin:0 0 6px}p{color:#5f5c53}
+  .part{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border:1px solid #e4e1d8;border-radius:6px;background:#fff;margin:10px 0}
+  a.dl{background:#1f5eff;color:#fff;text-decoration:none;padding:9px 16px;border-radius:5px;font-weight:600;white-space:nowrap}small{color:#7a776e}</style>
+  <h1>${sh.label || (sh.name ? sh.name + ' — export' : 'Export')}</h1>
+  <p>${ready.length} of ${links.length} part${links.length === 1 ? '' : 's'} ready · ${fmt(ready.reduce((a, b) => a + Number(b.bytes || 0), 0))} total · link valid until ${new Date(sh.expires_at).toLocaleDateString()}</p>
+  <p><small>Download every part and unzip them into the same folder. Part 1 includes <b>contacts.csv</b> (the records) and <b>manifest.csv</b> (which file belongs to which contact); documents are in one folder per contact.</small></p>
+  ${links.map(b => `<div class="part"><div><b>Part ${b.part} of ${b.total_parts}</b><br><small>${b.file_count.toLocaleString()} files${b.bytes ? ' · ' + fmt(b.bytes) : ''}${b.status !== 'done' ? ' · ' + b.status : ''}</small></div>${b.url ? `<a class="dl" href="${b.url}">Download</a>` : '<small>not ready yet</small>'}</div>`).join('') || '<p>Nothing prepared yet.</p>'}
+  <p><small>Download links on this page refresh each time it's opened; if one stops working, reload the page.</small></p>`);
+});
+
 // --- basic auth on everything else -----------------------------------------------------
 app.use((req, res, next) => {
   const pw = process.env.ADMIN_PASSWORD;
@@ -216,6 +235,19 @@ async function bundleStatus(locationId, scope) {
   const { rows } = await q(`SELECT * FROM bundles WHERE location_id=$1 AND scope=$2 ORDER BY part`, [locationId, scope]);
   return Promise.all(rows.map(async b => ({ ...b, url: b.status === 'done' ? await presign(b.r2_key, b.r2_key.split('/').pop()) : null })));
 }
+app.post('/api/locations/:id/shares', async (req, res) => {
+  const days = Math.min(90, Math.max(1, Number(req.body?.days) || 7));
+  const token = crypto.randomBytes(15).toString('base64url');
+  await q(`INSERT INTO shares (token, location_id, scope, label, expires_at) VALUES ($1,$2,$3,$4, now() + ($5 || ' days')::interval)`,
+    [token, req.params.id, req.body?.scope || 'location', req.body?.label || null, String(days)]);
+  res.json({ token, url: `${req.protocol}://${req.get('host')}/share/${token}`, days });
+});
+app.get('/api/locations/:id/shares', async (req, res) => {
+  const { rows } = await q(`SELECT token, scope, label, expires_at, created_at FROM shares WHERE location_id=$1 AND ($2::text IS NULL OR scope=$2) AND expires_at > now() ORDER BY created_at DESC`, [req.params.id, req.query.scope || null]);
+  res.json(rows.map(r => ({ ...r, url: `${req.protocol}://${req.get('host')}/share/${r.token}` })));
+});
+app.delete('/api/shares/:token', async (req, res) => { await q('DELETE FROM shares WHERE token=$1', [req.params.token]); res.json({ ok: true }); });
+
 app.get('/api/locations/:id/bundles', async (req, res) => res.json(await bundleStatus(req.params.id, req.query.scope || 'location')));
 app.post('/api/locations/:id/bundles', async (req, res) => {
   const scope = req.body?.scope || 'location';
@@ -236,6 +268,10 @@ app.get('/api/locations/:id/export', async (req, res) => {
   <p>${rows.length.toLocaleString()} files · ${fmtB(total)} in the vault. <a href="/api/locations/${req.params.id}/manifest.csv">manifest.csv</a></p>
   <p><button id="prep">Prepare download</button> <small>builds zip parts of up to ${ZIP_PART_FILES.toLocaleString()} files inside R2; you then download each part directly from Cloudflare (resumable, no proxy timeouts). Safe to close this tab while it builds.</small></p>
   <div id="parts"></div>
+  <h3 style="font-size:14px;margin-top:28px">Send to someone</h3>
+  <p><small>Creates a public page (no login) that lists these parts with always-fresh download links. Prepare the download first.</small></p>
+  <p><select id="days" style="font:inherit;padding:7px"><option value="1">valid 1 day</option><option value="7" selected>valid 7 days</option><option value="30">valid 30 days</option></select> <button id="share" style="background:#6fb3ff">Create share link</button></p>
+  <div id="shares"></div>
   <p><small>Alternative with a terminal:</small></p>
   <pre>rclone sync r2:${process.env.R2_BUCKET}/${req.params.id} ./${req.params.id}
 # rclone config: type=s3, provider=Cloudflare, endpoint=https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com</pre>
@@ -245,6 +281,12 @@ app.get('/api/locations/:id/export', async (req, res) => {
   async function load(){const bs=await fetch('/api/locations/${req.params.id}/bundles?scope=${scope}').then(r=>r.json());
     document.getElementById('parts').innerHTML=bs.length?'<table><tr><th>Part</th><th>Files</th><th>Status</th><th>Size</th><th></th></tr>'+bs.map(b=>\`<tr><td>\${b.part} of \${b.total_parts}</td><td>\${b.file_count.toLocaleString()}</td><td><span class="pill \${b.status}">\${b.status}</span>\${b.error?' <small>'+b.error+'</small>':''}</td><td>\${b.bytes?fmtB(b.bytes):''}</td><td>\${b.url?'<a href="'+b.url+'">download part '+b.part+'</a>':''}</td></tr>\`).join('')+'</table><small>Links are valid for 24 hours; reload this page for fresh ones.</small>':'<small>No download prepared yet.</small>';
     if(bs.some(b=>b.status!=='done'&&b.status!=='failed'))setTimeout(load,5000)}
+  async function loadShares(){const ss=await fetch('/api/locations/${req.params.id}/shares?scope=${scope}').then(r=>r.json());
+    document.getElementById('shares').innerHTML=ss.map(s=>\`<p><input value="\${s.url}" readonly style="font:inherit;width:60%;padding:6px;background:#151a16;color:#e6e9e4;border:1px solid #263029" onclick="this.select()"> <small>until \${new Date(s.expires_at).toLocaleDateString()}</small> <a href="#" data-revoke="\${s.token}" style="color:#f06a5a">revoke</a></p>\`).join('')||'';
+    document.querySelectorAll('[data-revoke]').forEach(a=>a.onclick=async e=>{e.preventDefault();await fetch('/api/shares/'+a.dataset.revoke,{method:'DELETE'});loadShares()})}
+  document.getElementById('share').onclick=async()=>{const r=await fetch('/api/locations/${req.params.id}/shares',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'${scope}',days:Number(document.getElementById('days').value)})}).then(r=>r.json());
+    await navigator.clipboard.writeText(r.url).catch(()=>{});loadShares();alert('Share link created and copied:\\n'+r.url)};
+  loadShares();
   document.getElementById('prep').onclick=async()=>{if(!confirm('Build zip parts now? Existing parts are replaced.'))return;await fetch('/api/locations/${req.params.id}/bundles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'${scope}'})});load()};
   load();
   </script>`);

@@ -171,6 +171,10 @@ export async function migrate() {
     ALTER TABLE package_contacts ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT true;
     ALTER TABLE package_contacts DROP CONSTRAINT IF EXISTS package_contacts_location_id_contact_id_key;
     CREATE UNIQUE INDEX IF NOT EXISTS package_contacts_locked_uniq ON package_contacts(location_id, contact_id) WHERE locked;
+    CREATE TABLE IF NOT EXISTS shares (            -- public download pages for prepared exports
+      token TEXT PRIMARY KEY, location_id TEXT NOT NULL, scope TEXT NOT NULL, label TEXT,
+      expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ DEFAULT now()
+    );
     CREATE TABLE IF NOT EXISTS bundles (           -- pre-built zip parts stored in R2 for direct download
       id SERIAL PRIMARY KEY, location_id TEXT NOT NULL, scope TEXT NOT NULL,   -- 'location' or 'package:<id>'
       part INT NOT NULL, total_parts INT NOT NULL, file_count INT NOT NULL,
