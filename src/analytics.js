@@ -29,7 +29,7 @@ export function buildFilter(locationId, f = {}) {
   if (f.addedTo) where.push(`c.date_added < ${p(f.addedTo)}::date + 1`);
   if (f.customKey && f.customValue != null && f.customValue !== '') where.push(`c.custom->>${p(f.customKey)} ILIKE ${p('%' + f.customValue + '%')}`);
   if (f.q) { const like = p('%' + f.q + '%'); where.push(`(c.first_name ILIKE ${like} OR c.last_name ILIKE ${like} OR c.email ILIKE ${like} OR c.company ILIKE ${like} OR c.phone ILIKE ${like})`); }
-  if (f.unassigned) where.push(`NOT EXISTS (SELECT 1 FROM package_contacts pc WHERE pc.location_id=c.location_id AND pc.contact_id=c.contact_id)`);
+  if (f.unassigned) where.push(`NOT EXISTS (SELECT 1 FROM package_contacts pc WHERE pc.location_id=c.location_id AND pc.contact_id=c.contact_id AND pc.locked)`);
 
   return { sql: where.join(' AND '), params, docCount };
 }
@@ -50,7 +50,7 @@ export async function summary(locationId) {
            count(*) FILTER (WHERE n BETWEEN 5 AND 9) AS b5_9,
            count(*) FILTER (WHERE n >= 10)           AS b10p
     FROM dc`, [locationId]);
-  const { rows: [pk] } = await q(`SELECT count(*) AS assigned FROM package_contacts WHERE location_id=$1`, [locationId]);
+  const { rows: [pk] } = await q(`SELECT count(*) AS assigned FROM package_contacts WHERE location_id=$1 AND locked`, [locationId]);
   const { rows: [st] } = await q(`SELECT coalesce(sum(size_bytes),0) AS bytes, count(*) FILTER (WHERE status='failed') AS failed FROM files WHERE location_id=$1`, [locationId]);
   return { ...num(s), assigned: Number(pk.assigned), unassigned: Number(s.contacts) - Number(pk.assigned), bytes: Number(st.bytes), failed_files: Number(st.failed) };
 }
@@ -81,7 +81,7 @@ export async function search(locationId, filters, { page = 1, limit = 50 } = {})
     SELECT c.contact_id, c.first_name, c.last_name, c.email, c.phone, c.company, c.state, c.tags, c.date_added,
            ${docCount} AS docs,
            (SELECT string_agg(DISTINCT fx.field_name, ', ') FROM files fx WHERE fx.location_id=c.location_id AND fx.contact_id=c.contact_id AND fx.status='done') AS fields,
-           EXISTS (SELECT 1 FROM package_contacts pc WHERE pc.location_id=c.location_id AND pc.contact_id=c.contact_id) AS assigned
+           EXISTS (SELECT 1 FROM package_contacts pc WHERE pc.location_id=c.location_id AND pc.contact_id=c.contact_id AND pc.locked) AS assigned
     FROM contacts c WHERE ${sql}
     ORDER BY c.date_added DESC NULLS LAST, c.contact_id
     LIMIT ${Number(limit)} OFFSET ${(Number(page) - 1) * Number(limit)}`, params);

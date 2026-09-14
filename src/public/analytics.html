@@ -92,6 +92,7 @@
       <button id="csv">Export filtered CSV</button>
       <select id="pkgSize"></select>
       <button id="pkg">Package random N from filter</button>
+      <button id="exportAll" class="primary" title="Every contact matching the filter, with contacts.csv + documents in one download. Does not lock contacts out of rep packages.">Export all matching (CSV + documents)</button>
     </div>
   </div>
 
@@ -182,6 +183,9 @@ $('#csv').onclick=async()=>{const r=await fetch(`/api/locations/${loc}/search.cs
   const a=document.createElement('a');a.href=URL.createObjectURL(await r.blob());a.download=`${loc}-filtered.csv`;a.click()};
 $('#pkg').onclick=async()=>{const size=Number($('#pkgSize').value);if(!confirm(`Create a package of ${N(size)} random contacts from the current filter?`))return;
   const r=await api(`/api/locations/${loc}/packages`,{method:'POST',body:{size,filters:filters(),label:'filtered',columns:columns(),fileFields:checked('docs'),folderTemplate:folderTemplate()}});toast(r.error||`Package #${r.id} queued with ${N(r.contact_count)} contacts`);loadAnalytics();run(page)};
+$('#exportAll').onclick=async()=>{const n=$('#matchCount').textContent;if(!confirm(`Build an export of all ${n} matching contacts with their documents (using the column/document/folder choices above)?`))return;
+  const r=await api(`/api/locations/${loc}/packages`,{method:'POST',body:{size:'all',filters:filters(),label:'filtered export',columns:columns(),fileFields:checked('docs'),folderTemplate:folderTemplate()}});
+  if(r.error)return toast(r.error);toast(`Export #${r.id} building (${N(r.contact_count)} contacts)…`);setTimeout(()=>location.href=`/api/packages/${r.id}/export`,1500)};
 api(`/api/locations/${loc}/pool`).then(p=>{$('#pkgSize').innerHTML=p.sizes.map(s=>`<option value="${s}">${s>=1000?s/1000+'k':s}</option>`).join('');
   $('#cols').innerHTML=p.standardColumns.map(i=>`<label><input type="checkbox" value="${i}" checked> ${i}</label>`).join('')});
 document.addEventListener('click',e=>{const a=e.target.closest('a[data-all],a[data-none]');if(!a)return;e.preventDefault();

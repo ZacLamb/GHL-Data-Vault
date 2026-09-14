@@ -115,7 +115,7 @@ async function renderPackages(loc){
   const fmtN=n=>Number(n).toLocaleString();
   const next=`<div class="bar"><span>PACKAGE · ${fmtN(pool.available)} of ${fmtN(pool.total)} contacts not yet packaged</span>
     ${pool.sizes.map(s=>`<button data-pkg="${loc}" data-size="${s}" ${s>pool.available?'disabled title="not enough unassigned contacts"':''}>${s>=1000?s/1000+'k':s}</button>`).join('')}</div>`+
-    pkgs.map(p=>`<div class="pkgrow"><span class="pill ${p.status}">${p.status}</span><b>#${p.id}</b><span>${fmtN(p.contact_count)} contacts · ${p.status==='done'?fmtN(p.file_count)+' files':`${fmtN(p.progress.copied||0)}/${fmtN(p.progress.total||'?')} copied`}${p.progress.failed?` · <span class="f">${p.progress.failed} failed</span>`:''}</span>
+    pkgs.map(p=>`<div class="pkgrow"><span class="pill ${p.status}">${p.status}</span><b>#${p.id}</b>${p.locked===false?'<span class="id">export</span>':''}<span>${fmtN(p.contact_count)} contacts · ${p.status==='done'?fmtN(p.file_count)+' files':`${fmtN(p.progress.copied||0)}/${fmtN(p.progress.total||'?')} copied`}${p.progress.failed?` · <span class="f">${p.progress.failed} failed</span>`:''}</span>
       ${p.status==='done'?`<a href="/api/packages/${p.id}/contacts.csv">contacts.csv</a><a href="/api/packages/${p.id}/manifest.csv">manifest.csv</a><a href="/api/packages/${p.id}/export">download files</a><span class="id">R2: ${p.r2_prefix}</span>`:''}
       <button data-dissolve="${p.id}" title="Release these contacts back into the pool">dissolve</button></div>`).join('');
   if(next!==prev)el.innerHTML=next;

@@ -266,21 +266,23 @@ app.get('/api/locations/:id/export.zip', async (req, res) => {
 app.get('/api/locations/:id/pool', async (req, res) => {
   const { rows: [r] } = await q(`
     SELECT (SELECT count(*) FROM contacts WHERE location_id=$1) AS total,
-           (SELECT count(*) FROM package_contacts WHERE location_id=$1) AS assigned`, [req.params.id]);
+           (SELECT count(*) FROM package_contacts WHERE location_id=$1 AND locked) AS assigned`, [req.params.id]);
   res.json({ total: Number(r.total), assigned: Number(r.assigned), available: Number(r.total) - Number(r.assigned), sizes: PACKAGE_SIZES, standardColumns: STANDARD_COLUMNS });
 });
 
 app.post('/api/locations/:id/packages', async (req, res) => {
-  const size = Number(req.body?.size);
-  if (!PACKAGE_SIZES.includes(size)) return res.status(400).json({ error: `size must be one of ${PACKAGE_SIZES.join(', ')}` });
-  const pkg = await createPackage(req.params.id, size, req.body?.label, { filters: req.body?.filters || {}, columns: req.body?.columns || null, fileFields: req.body?.fileFields || null, folderTemplate: req.body?.folderTemplate || null });
-  if (!pkg.contact_count) { await dissolvePackage(pkg.id); return res.status(409).json({ error: 'No unassigned contacts left in this location' }); }
+  const all = req.body?.size === 'all';
+  const size = all ? 'all' : Number(req.body?.size);
+  if (!all && !PACKAGE_SIZES.includes(size)) return res.status(400).json({ error: `size must be one of ${PACKAGE_SIZES.join(', ')} or "all"` });
+  const locked = req.body?.locked !== false && !all;   // "export all matching" never locks contacts
+  const pkg = await createPackage(req.params.id, size, req.body?.label, { filters: req.body?.filters || {}, columns: req.body?.columns || null, fileFields: req.body?.fileFields || null, folderTemplate: req.body?.folderTemplate || null, locked });
+  if (!pkg.contact_count) { await dissolvePackage(pkg.id); return res.status(409).json({ error: locked ? 'No not-yet-packaged contacts match this filter' : 'No contacts match this filter' }); }
   res.json(pkg);
 });
 
 app.get('/api/packages', async (req, res) => {
   const { rows } = await q(`SELECT * FROM packages WHERE ($1::text IS NULL OR location_id=$1) ORDER BY id DESC LIMIT 100`, [req.query.locationId || null]);
-  res.json(rows.map(p => ({ ...p, progress: { copied: p.progress?.copied, total: p.progress?.total, failed: p.progress?.failed?.length || 0 } })));
+  res.json(rows.map(p => ({ ...p, progress: { copied: p.progress?.copied, total: p.progress?.total, failed: p.progress?.failed?.length || 0, all: !!p.progress?.all } })));
 });
 
 app.delete('/api/packages/:id', async (req, res) => { await dissolvePackage(req.params.id); res.json({ ok: true }); });

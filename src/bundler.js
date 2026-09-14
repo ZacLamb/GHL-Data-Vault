@@ -44,6 +44,10 @@ export async function buildBundle(b) {
         try { body = await getObjectStream(k); } catch (err) { missing.push(`${k}\t${err.name || err.message}`); continue; }
         await new Promise((res, rej) => { body.once('error', rej); zip.append(body, { name }); zip.once('entry', res); }).catch(err => missing.push(`${k}\t${err.message}`));
       }
+      if (b.part === 1 && b.scope === 'location') {
+        zip.append(await manifestCsv(b.location_id), { name: 'manifest.csv' });
+        zip.append(await contactsCsv(b.location_id), { name: 'contacts.csv' });
+      }
       if (missing.length) zip.append(missing.join('\n'), { name: '_missing.txt' });
       zip.finalize();
     })().catch(err => zip.emit('error', err));
@@ -52,4 +56,17 @@ export async function buildBundle(b) {
   } catch (err) {
     await q(`UPDATE bundles SET status='failed', error=$2 WHERE id=$1`, [b.id, String(err.message).slice(0, 500)]);
   }
+}
+
+const csvCell = v => v == null ? '' : `"${String(Array.isArray(v) ? v.join(';') : typeof v === 'object' ? JSON.stringify(v) : v).replace(/"/g, '""')}"`;
+async function manifestCsv(locationId) {
+  const cols = ['id','source','status','contact_id','opportunity_id','conversation_id','message_id','submission_id','document_id','field_id','field_name','original_filename','mime_type','size_bytes','uploaded_at','r2_key','source_url'];
+  const { rows } = await q(`SELECT ${cols.join(',')} FROM files WHERE location_id=$1 AND status='done' ORDER BY contact_id, id`, [locationId]);
+  return [cols.join(','), ...rows.map(r => cols.map(c => csvCell(r[c])).join(','))].join('\n');
+}
+async function contactsCsv(locationId) {
+  const { rows } = await q(`SELECT contact_id, first_name, last_name, email, phone, company, address, city, state, postal_code, tags, date_added, date_updated, assigned_to, source, file_count, custom FROM contacts WHERE location_id=$1 ORDER BY contact_id`, [locationId]);
+  const customKeys = [...new Set(rows.flatMap(r => Object.keys(r.custom || {})))].sort();
+  const base = ['contact_id','first_name','last_name','email','phone','company','address','city','state','postal_code','tags','date_added','date_updated','assigned_to','source','file_count'];
+  return [[...base, ...customKeys].map(csvCell).join(','), ...rows.map(r => [...base.map(c => r[c]), ...customKeys.map(k => r.custom?.[k])].map(csvCell).join(','))].join('\n');
 }

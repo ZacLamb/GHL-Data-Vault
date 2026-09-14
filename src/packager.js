@@ -11,20 +11,22 @@ export const STANDARD_COLUMNS = ['First Name','Last Name','Email','Phone','Compa
 
 /** options: { filters, columns: [...]|null (=all), fileFields: [...]|null (=all), folderTemplate: e.g. "{Company Name} - {Last Name}" } */
 export async function createPackage(locationId, size, label, options = {}) {
-  const { filters = {}, columns = null, fileFields = null, folderTemplate = null } = options;
-  const { rows: [pkg] } = await q(`INSERT INTO packages (location_id, requested_size, label, progress) VALUES ($1,$2,$3,$4) RETURNING *`,
-    [locationId, size, label || null, { filters, columns, fileFields, folderTemplate }]);
+  const { filters = {}, columns = null, fileFields = null, folderTemplate = null, locked = true } = options;
+  const all = size === 'all';
+  const { rows: [pkg] } = await q(`INSERT INTO packages (location_id, requested_size, label, progress, locked) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+    [locationId, all ? 0 : size, label || null, { filters, columns, fileFields, folderTemplate, all }, locked]);
 
-  // Random sample of unassigned contacts matching the filter (if any).
-  const { sql, params } = buildFilter(locationId, { ...filters, unassigned: true });
-  params.push(pkg.id, size);
+  // Locked packages (rep splits): random sample of not-yet-packaged contacts. Unlocked exports: everything matching, no sampling.
+  const { sql, params } = buildFilter(locationId, { ...filters, unassigned: locked });
+  params.push(pkg.id);
+  const idIdx = params.length;
+  if (!all) params.push(size);
   const { rowCount } = await q(`
-    INSERT INTO package_contacts (package_id, location_id, contact_id)
-    SELECT $${params.length - 1}, c.location_id, c.contact_id
+    INSERT INTO package_contacts (package_id, location_id, contact_id, locked)
+    SELECT $${idIdx}, c.location_id, c.contact_id, ${locked ? 'true' : 'false'}
     FROM contacts c
     WHERE ${sql}
-    ORDER BY random()
-    LIMIT $${params.length}`, params);
+    ${all ? 'ORDER BY c.contact_id' : `ORDER BY random() LIMIT $${params.length}`}`, params);
 
   await q(`UPDATE packages SET contact_count=$2 WHERE id=$1`, [pkg.id, rowCount]);
   return { ...pkg, contact_count: rowCount };
