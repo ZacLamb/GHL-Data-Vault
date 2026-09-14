@@ -16,6 +16,14 @@ import crypto from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+// Any async route that throws must answer 500, not take the process down (Node exits on unhandled rejections).
+for (const m of ['get', 'post', 'put', 'delete']) {
+  const orig = app[m].bind(app);
+  app[m] = (path, ...handlers) => orig(path, ...handlers.map(h => typeof h === 'function' && h.length < 4
+    ? (req, res, next) => Promise.resolve(h(req, res, next)).catch(next) : h));
+}
+process.on('unhandledRejection', err => console.error('unhandledRejection:', err?.stack || err));
+process.on('uncaughtException', err => console.error('uncaughtException:', err?.stack || err));
 app.use(express.json());
 
 // --- public routes (no basic auth): webhook receiver + owner report ---------------------
@@ -48,10 +56,32 @@ app.get('/api/report/:token', async (req, res) => {
   res.json({ name: loc.name, summary: s, users: users.map(u => ({ ...u, email: undefined })), daily });
 });
 
+// --- share-link password helpers -------------------------------------------------------
+const SECRET = process.env.SESSION_SECRET || process.env.ADMIN_PASSWORD || 'ghl-vault';
+const hashPw = pw => { const salt = crypto.randomBytes(16).toString('hex'); return salt + ':' + crypto.scryptSync(pw, salt, 32).toString('hex'); };
+const checkPw = (pw, stored) => { if (!stored) return true; const [salt, h] = stored.split(':'); const a = Buffer.from(h, 'hex'); const b = crypto.scryptSync(pw || '', salt, 32); return a.length === b.length && crypto.timingSafeEqual(a, b); };
+const shareSig = token => crypto.createHmac('sha256', SECRET).update('share:' + token).digest('base64url');
+const cookies = req => Object.fromEntries((req.headers.cookie || '').split(';').map(c => c.trim().split('=')).filter(x => x[0]).map(([k, ...v]) => [k, decodeURIComponent(v.join('='))]));
+const unlocked = (req, token) => cookies(req)['sh_' + token] === shareSig(token);
+const pwPage = (title, wrong) => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>
+  <style>body{font:15px/1.6 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;background:#fbfaf7;color:#1c1b18;max-width:420px;margin:0 auto;padding:80px 24px}h1{font-size:20px}input{font:inherit;padding:10px;width:100%;border:1px solid #d9d6cc;border-radius:5px;margin:8px 0}
+  button{font:inherit;background:#1f5eff;color:#fff;border:0;padding:10px 16px;border-radius:5px;font-weight:600;cursor:pointer}.err{color:#d64545}</style>
+  <h1>${title}</h1><p>This download is password protected.</p>${wrong ? '<p class="err">Incorrect password.</p>' : ''}
+  <form method="post"><input type="password" name="password" placeholder="Password" autofocus required><button>Unlock</button></form>`;
+
+app.post('/share/:token', express.urlencoded({ extended: false }), async (req, res) => {
+  const { rows: [sh] } = await q(`SELECT s.*, l.name FROM shares s JOIN locations l ON l.location_id=s.location_id WHERE s.token=$1`, [req.params.token]);
+  if (!sh) return res.status(404).send('This share link does not exist.');
+  if (!checkPw(req.body?.password, sh.password_hash)) return res.status(401).type('html').send(pwPage(sh.label || sh.name || 'Export', true));
+  res.set('Set-Cookie', `sh_${sh.token}=${shareSig(sh.token)}; Path=/share/${sh.token}; HttpOnly; SameSite=Lax; Max-Age=43200${req.secure || req.get('x-forwarded-proto') === 'https' ? '; Secure' : ''}`);
+  res.redirect(`/share/${sh.token}`);
+});
+
 app.get('/share/:token', async (req, res) => {
   const { rows: [sh] } = await q(`SELECT s.*, l.name FROM shares s JOIN locations l ON l.location_id=s.location_id WHERE s.token=$1`, [req.params.token]);
   if (!sh) return res.status(404).send('This share link does not exist.');
   if (new Date(sh.expires_at) < new Date()) return res.status(410).send('This share link has expired.');
+  if (sh.password_hash && !unlocked(req, sh.token)) return res.type('html').send(pwPage(sh.label || sh.name || 'Export', false));
   const { rows: parts } = await q(`SELECT * FROM bundles WHERE location_id=$1 AND scope=$2 ORDER BY part`, [sh.location_id, sh.scope]);
   const links = await Promise.all(parts.map(async b => ({ ...b, url: b.status === 'done' ? await presign(b.r2_key, b.r2_key.split('/').pop(), 6 * 3600) : null })));
   const fmt = n => { const u = ['B','KB','MB','GB','TB']; let i = 0; n = Number(n || 0); while (n >= 1024 && i < 4) { n /= 1024; i++; } return n.toFixed(i ? 1 : 0) + ' ' + u[i]; };
@@ -67,14 +97,47 @@ app.get('/share/:token', async (req, res) => {
   <p><small>Download links on this page refresh each time it's opened; if one stops working, reload the page.</small></p>`);
 });
 
-// --- basic auth on everything else -----------------------------------------------------
+// --- login: ADMIN_USER + ADMIN_PASSWORD (set in Railway) --------------------------------------
+const ADMIN_USER = process.env.ADMIN_USER || 'admin';
+const ADMIN_PW = process.env.ADMIN_PASSWORD || '';
+const SESSION_DAYS = Number(process.env.SESSION_DAYS || 7);
+const sessionToken = () => {
+  const exp = Date.now() + SESSION_DAYS * 86_400_000;
+  const sig = crypto.createHmac('sha256', SECRET + ADMIN_PW).update(`session:${exp}`).digest('base64url');
+  return `${exp}.${sig}`;
+};
+const validSession = t => {
+  if (!t) return false;
+  const [exp, sig] = t.split('.');
+  if (!exp || !sig || Number(exp) < Date.now()) return false;
+  const want = crypto.createHmac('sha256', SECRET + ADMIN_PW).update(`session:${exp}`).digest('base64url');
+  return sig.length === want.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want));
+};
+const loginPage = (err) => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GHL Vault · Sign in</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Instrument+Serif:ital@1&display=swap" rel="stylesheet">
+  <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f1210;color:#e6e9e4;font:14px/1.5 "IBM Plex Mono",ui-monospace,monospace;background-image:radial-gradient(circle at 20% -10%,rgba(242,179,61,.1),transparent 45%)}
+  form{width:320px;padding:28px;border:1px solid #263029;border-radius:4px;background:#151a16}h1{font:italic 32px/1 "Instrument Serif",serif;margin:0 0 4px}h1 small{display:block;font:11px "IBM Plex Mono",monospace;color:#f2b33d;letter-spacing:.2em;text-transform:uppercase;margin-top:8px}
+  input{font:inherit;width:100%;box-sizing:border-box;padding:9px 10px;margin:12px 0 0;background:#0f1210;color:#e6e9e4;border:1px solid #263029;border-radius:2px}button{font:inherit;width:100%;margin-top:16px;padding:10px;background:#f2b33d;color:#1b1608;border:0;border-radius:2px;font-weight:600;cursor:pointer}.err{color:#f06a5a;font-size:12px;margin:10px 0 0}</style>
+  <form method="post" action="/login"><h1>GHL Vault<small>sign in</small></h1>${err ? `<p class="err">${err}</p>` : ''}
+  <input name="user" placeholder="Username" autocomplete="username" autofocus required><input name="password" type="password" placeholder="Password" autocomplete="current-password" required><button>Sign in</button></form>`;
+
+app.get('/login', (req, res) => { if (!ADMIN_PW || validSession(cookies(req).vault_session)) return res.redirect('/'); res.type('html').send(loginPage()); });
+app.post('/login', express.urlencoded({ extended: false }), (req, res) => {
+  const ok = ADMIN_PW && req.body?.user === ADMIN_USER && req.body?.password === ADMIN_PW;
+  if (!ok) return res.status(401).type('html').send(loginPage('Incorrect username or password.'));
+  res.set('Set-Cookie', `vault_session=${sessionToken()}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${req.get('x-forwarded-proto') === 'https' ? '; Secure' : ''}`);
+  res.redirect('/');
+});
+app.get('/logout', (req, res) => { res.set('Set-Cookie', 'vault_session=; Path=/; Max-Age=0'); res.redirect('/login'); });
+
 app.use((req, res, next) => {
-  const pw = process.env.ADMIN_PASSWORD;
-  if (!pw) return next();
-  const [, b64] = (req.headers.authorization || '').split(' ');
-  const given = b64 ? Buffer.from(b64, 'base64').toString().split(':').slice(1).join(':') : '';
-  if (given === pw) return next();
-  res.set('WWW-Authenticate', 'Basic realm="ghl-vault"').status(401).send('auth required');
+  if (!ADMIN_PW) { if (!global._warnedNoPw) { global._warnedNoPw = true; console.warn('WARN: ADMIN_PASSWORD not set — dashboard is open to anyone with the URL'); } return next(); }
+  if (validSession(cookies(req).vault_session)) return next();
+  // Basic auth still accepted for scripts / curl
+  const [scheme, b64] = (req.headers.authorization || '').split(' ');
+  if (scheme === 'Basic' && b64) { const [u, ...p] = Buffer.from(b64, 'base64').toString().split(':'); if (u === ADMIN_USER && p.join(':') === ADMIN_PW) return next(); }
+  if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'login required' });
+  res.redirect('/login');
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -238,12 +301,13 @@ async function bundleStatus(locationId, scope) {
 app.post('/api/locations/:id/shares', async (req, res) => {
   const days = Math.min(90, Math.max(1, Number(req.body?.days) || 7));
   const token = crypto.randomBytes(15).toString('base64url');
-  await q(`INSERT INTO shares (token, location_id, scope, label, expires_at) VALUES ($1,$2,$3,$4, now() + ($5 || ' days')::interval)`,
-    [token, req.params.id, req.body?.scope || 'location', req.body?.label || null, String(days)]);
-  res.json({ token, url: `${req.protocol}://${req.get('host')}/share/${token}`, days });
+  const pw = (req.body?.password || '').trim();
+  await q(`INSERT INTO shares (token, location_id, scope, label, expires_at, password_hash) VALUES ($1,$2,$3,$4, now() + ($5 || ' days')::interval, $6)`,
+    [token, req.params.id, req.body?.scope || 'location', req.body?.label || null, String(days), pw ? hashPw(pw) : null]);
+  res.json({ token, url: `${req.protocol}://${req.get('host')}/share/${token}`, days, protected: !!pw });
 });
 app.get('/api/locations/:id/shares', async (req, res) => {
-  const { rows } = await q(`SELECT token, scope, label, expires_at, created_at FROM shares WHERE location_id=$1 AND ($2::text IS NULL OR scope=$2) AND expires_at > now() ORDER BY created_at DESC`, [req.params.id, req.query.scope || null]);
+  const { rows } = await q(`SELECT token, scope, label, expires_at, created_at, (password_hash IS NOT NULL) AS protected FROM shares WHERE location_id=$1 AND ($2::text IS NULL OR scope=$2) AND expires_at > now() ORDER BY created_at DESC`, [req.params.id, req.query.scope || null]);
   res.json(rows.map(r => ({ ...r, url: `${req.protocol}://${req.get('host')}/share/${r.token}` })));
 });
 app.delete('/api/shares/:token', async (req, res) => { await q('DELETE FROM shares WHERE token=$1', [req.params.token]); res.json({ ok: true }); });
@@ -270,7 +334,9 @@ app.get('/api/locations/:id/export', async (req, res) => {
   <div id="parts"></div>
   <h3 style="font-size:14px;margin-top:28px">Send to someone</h3>
   <p><small>Creates a public page (no login) that lists these parts with always-fresh download links. Prepare the download first.</small></p>
-  <p><select id="days" style="font:inherit;padding:7px"><option value="1">valid 1 day</option><option value="7" selected>valid 7 days</option><option value="30">valid 30 days</option></select> <button id="share" style="background:#6fb3ff">Create share link</button></p>
+  <p><select id="days" style="font:inherit;padding:7px"><option value="1">valid 1 day</option><option value="7" selected>valid 7 days</option><option value="30">valid 30 days</option></select>
+     <input id="pw" placeholder="Password (recommended)" style="font:inherit;padding:7px;background:#151a16;color:#e6e9e4;border:1px solid #263029;width:220px">
+     <button id="share" style="background:#6fb3ff">Create share link</button></p>
   <div id="shares"></div>
   <p><small>Alternative with a terminal:</small></p>
   <pre>rclone sync r2:${process.env.R2_BUCKET}/${req.params.id} ./${req.params.id}
@@ -282,10 +348,10 @@ app.get('/api/locations/:id/export', async (req, res) => {
     document.getElementById('parts').innerHTML=bs.length?'<table><tr><th>Part</th><th>Files</th><th>Status</th><th>Size</th><th></th></tr>'+bs.map(b=>\`<tr><td>\${b.part} of \${b.total_parts}</td><td>\${b.file_count.toLocaleString()}</td><td><span class="pill \${b.status}">\${b.status}</span>\${b.error?' <small>'+b.error+'</small>':''}</td><td>\${b.bytes?fmtB(b.bytes):''}</td><td>\${b.url?'<a href="'+b.url+'">download part '+b.part+'</a>':''}</td></tr>\`).join('')+'</table><small>Links are valid for 24 hours; reload this page for fresh ones.</small>':'<small>No download prepared yet.</small>';
     if(bs.some(b=>b.status!=='done'&&b.status!=='failed'))setTimeout(load,5000)}
   async function loadShares(){const ss=await fetch('/api/locations/${req.params.id}/shares?scope=${scope}').then(r=>r.json());
-    document.getElementById('shares').innerHTML=ss.map(s=>\`<p><input value="\${s.url}" readonly style="font:inherit;width:60%;padding:6px;background:#151a16;color:#e6e9e4;border:1px solid #263029" onclick="this.select()"> <small>until \${new Date(s.expires_at).toLocaleDateString()}</small> <a href="#" data-revoke="\${s.token}" style="color:#f06a5a">revoke</a></p>\`).join('')||'';
+    document.getElementById('shares').innerHTML=ss.map(s=>\`<p><input value="\${s.url}" readonly style="font:inherit;width:60%;padding:6px;background:#151a16;color:#e6e9e4;border:1px solid #263029" onclick="this.select()"> <small>\${s.protected?'🔒 password · ':''}until \${new Date(s.expires_at).toLocaleDateString()}</small> <a href="#" data-revoke="\${s.token}" style="color:#f06a5a">revoke</a></p>\`).join('')||'';
     document.querySelectorAll('[data-revoke]').forEach(a=>a.onclick=async e=>{e.preventDefault();await fetch('/api/shares/'+a.dataset.revoke,{method:'DELETE'});loadShares()})}
-  document.getElementById('share').onclick=async()=>{const r=await fetch('/api/locations/${req.params.id}/shares',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'${scope}',days:Number(document.getElementById('days').value)})}).then(r=>r.json());
-    await navigator.clipboard.writeText(r.url).catch(()=>{});loadShares();alert('Share link created and copied:\\n'+r.url)};
+  document.getElementById('share').onclick=async()=>{const r=await fetch('/api/locations/${req.params.id}/shares',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'${scope}',days:Number(document.getElementById('days').value),password:document.getElementById('pw').value})}).then(r=>r.json());
+    await navigator.clipboard.writeText(r.url).catch(()=>{});document.getElementById('pw').value='';loadShares();alert('Share link created and copied:\\n'+r.url+(r.protected?'\\n\\nSend the password separately (text/call), not in the same email.':'\\n\\nNo password set — anyone with the link can download.'))};
   loadShares();
   document.getElementById('prep').onclick=async()=>{if(!confirm('Build zip parts now? Existing parts are replaced.'))return;await fetch('/api/locations/${req.params.id}/bundles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'${scope}'})});load()};
   load();
@@ -424,6 +490,11 @@ app.get('/api/locations/:id/events', async (req, res) => {
 });
 
 app.get('/api/sources', (_req, res) => res.json(ALL_SOURCES));
+
+app.use((err, req, res, _next) => {
+  console.error(`${req.method} ${req.originalUrl} ->`, err?.stack || err);
+  if (!res.headersSent) res.status(500).json({ error: String(err?.message || err) });
+});
 
 const port = process.env.PORT || 3000;
 for (const k of ['R2_ACCOUNT_ID','R2_ACCESS_KEY_ID','R2_SECRET_ACCESS_KEY','R2_BUCKET'])

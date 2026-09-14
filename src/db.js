@@ -175,6 +175,7 @@ export async function migrate() {
       token TEXT PRIMARY KEY, location_id TEXT NOT NULL, scope TEXT NOT NULL, label TEXT,
       expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ DEFAULT now()
     );
+    ALTER TABLE shares ADD COLUMN IF NOT EXISTS password_hash TEXT;
     CREATE TABLE IF NOT EXISTS bundles (           -- pre-built zip parts stored in R2 for direct download
       id SERIAL PRIMARY KEY, location_id TEXT NOT NULL, scope TEXT NOT NULL,   -- 'location' or 'package:<id>'
       part INT NOT NULL, total_parts INT NOT NULL, file_count INT NOT NULL,
