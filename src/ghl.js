@@ -59,13 +59,13 @@ export async function getToken(locationId) {
   if (fresh) return loc.oauth_token;
 
   const agency = await agencyToken();
-  const companyId = await companyId_safe();
-  if (!agency || !companyId) throw new Error(`No PIT for ${locationId} and no agency credential configured (GHL_AGENCY_PIT or agency OAuth)`);
+  const cid = await companyId_safe();
+  if (!agency || !cid) throw new Error(`No PIT for ${locationId} and no agency credential configured (GHL_AGENCY_PIT or agency OAuth)`);
 
   const res = await fetch(`${BASE}/oauth/locationToken`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${agency}`, Version: VERSION, 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
-    body: new URLSearchParams({ companyId, locationId }),
+    body: new URLSearchParams({ companyId: cid, locationId }),
   });
   if (!res.ok) throw new Error(`locationToken failed ${res.status}: ${await res.text()}`);
   const data = await res.json();
@@ -93,12 +93,11 @@ export async function companyId() {
 }
 
 export async function importAgencyLocations() {
-  const token = await agencyToken(); const companyId_ = await companyId();
-  const companyId = companyId_;
-  if (!token || !companyId) throw new Error('Agency credential not configured: set GHL_AGENCY_PIT (or agency OAuth vars) in Railway');
+  const token = await agencyToken(); const cid = await companyId();
+  if (!token || !cid) throw new Error('Agency credential not configured: set GHL_AGENCY_PIT (or agency OAuth vars) in Railway');
   let skip = 0, imported = 0, total = 0;
   while (true) {
-    const r = await fetch(`${BASE}/locations/search?companyId=${companyId}&limit=100&skip=${skip}`, { headers: { Authorization: `Bearer ${token}`, Version: VERSION, Accept: 'application/json' } });
+    const r = await fetch(`${BASE}/locations/search?companyId=${cid}&limit=100&skip=${skip}`, { headers: { Authorization: `Bearer ${token}`, Version: VERSION, Accept: 'application/json' } });
     if (!r.ok) throw new Error(`locations/search ${r.status}: ${(await r.text()).slice(0, 300)}`);
     const { locations = [] } = await r.json();
     for (const l of locations) {
