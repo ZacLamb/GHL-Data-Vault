@@ -65,7 +65,6 @@
   <a href="/search.html" style="color:var(--amber);margin-right:16px">master search →</a>
   <a href="/usage.html" style="color:var(--blue);margin-right:16px">usage analytics →</a>
   <a href="/logout" class="id" style="margin-right:16px">log out</a>
-  <button id="importAgency" title="Pull every sub-account via the agency token">Import sub-accounts</button>
 </header>
 <main>
   <div class="add">
@@ -73,6 +72,25 @@
     <input id="locName" placeholder="Name (optional)">
     <input id="locPit" placeholder="Private Integration Token (optional)" style="min-width:340px">
     <button class="primary" id="addLoc">Add / update location</button>
+  </div>
+  <div class="card" id="backup" style="margin:0 0 22px;padding:16px;border:1px solid var(--line);border-radius:3px;background:var(--panel)">
+    <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <span class="gl" style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber)">Agency backup</span>
+      <span id="bkStatus" class="id"></span>
+      <span style="flex:1"></span>
+      <button class="btn" id="importAgency2" title="Pull every sub-account under the agency into the vault">Import all sub-accounts</button>
+      <button class="btn primary" id="bkNow" title="Queue a backup for every enabled sub-account right now">Backup all now</button>
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--dim)">
+      <label style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;font-size:12px"><input type="checkbox" id="bkEnabled"> monthly, on day</label>
+      <input id="bkDay" type="number" min="1" max="28" style="width:62px;padding:5px 8px">
+      <span>at</span><input id="bkHour" type="number" min="0" max="23" style="width:62px;padding:5px 8px"><span id="bkTz"></span>
+      <select id="bkMode" style="padding:5px 8px"><option value="incremental">incremental (only what changed since last backup)</option><option value="full">full re-crawl</option></select>
+      <label style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;font-size:12px"><input type="checkbox" id="bkImport"> import new sub-accounts first</label>
+      <button class="btn" id="bkSave">Save schedule</button>
+    </div>
+    <div class="srcs" id="bkSrcs" style="margin:8px 0 0"><span>Backup sources:</span></div>
+    <div class="id" id="bkLast" style="margin-top:6px"></div>
   </div>
   <div class="srcs" id="srcs"><span>Sources for new runs:</span></div>
   <div class="row head"><div>Location</div><div>Last run</div><div>Vault</div></div>
@@ -107,7 +125,7 @@ async function load(){
     const running=j&&['running','queued'].includes(j.status);
     const html=`
       <div><div class="name">${l.name||'(unnamed)'}</div><div class="id" title="click to copy" style="cursor:pointer" onclick="navigator.clipboard.writeText('${l.location_id}');toast('Copied')">${l.location_id} ${l.has_pit?'· PIT':'· agency'}</div></div>
-      <div>${j?`<span class="pill ${j.status}">${j.status}</span> <span class="id">#${j.id}${j.since?' sync':''} ${fmtD(j.finished_at||j.created_at)}</span>${prog?`<details${wasOpen?' open':''}><summary>progress</summary><pre>${prog}</pre></details>`:''}`:'<span class="id">never run</span>'}</div>
+      <div>${j?`<span class="pill ${j.status}">${j.status}</span> <span class="id">#${j.id}${j.trigger==='scheduled'?' auto':j.since?' sync':''} ${fmtD(j.finished_at||j.created_at)}</span>${prog?`<details${wasOpen?' open':''}><summary>progress</summary><pre>${prog}</pre></details>`:''}`:'<span class="id">never run</span>'}</div>
       <div class="stats"><span><b>${Number(l.files_done).toLocaleString()}</b> files</span><span><b>${fmtB(l.bytes)}</b></span>${Number(l.files_failed)?`<span class="f"><b class="f">${Number(l.files_failed).toLocaleString()}</b> failed</span>`:''}</div>
       <div class="groups">
         <div class="group"><span class="gl">Crawl GHL</span><div class="gb">${running?`<button class="btn" data-cancel="${j.id}">Stop</button>`:`<button class="btn primary" data-run="${l.location_id}" title="Full crawl of the selected sources">Run export</button>${j&&j.status==='done'?`<button class="btn" data-sync="${l.location_id}" title="Only contacts updated since the last completed export">Sync new</button>`:''}`}${j&&['cancelled','failed'].includes(j.status)?`<button class="btn" data-resume="${j.id}">Resume</button>`:''}${j&&Number(l.files_failed)?`<button class="btn" data-retry="${j.id}">Retry failed</button>`:''}</div></div>
@@ -115,7 +133,7 @@ async function load(){
         <div class="group"><span class="gl">Export</span><div class="gb"><a class="btn" href="/api/locations/${l.location_id}/export" title="Zip parts with contacts.csv + manifest + all documents, downloaded straight from R2">Download files</a><a class="btn" href="/api/locations/${l.location_id}/manifest.csv">Manifest CSV</a>${Number(l.files_failed)?`<a class="btn red" href="/api/locations/${l.location_id}/failures">Failures</a>`:''}</div></div>
       </div>
       <div class="pkgs" id="pkgs-${l.location_id}"></div>
-      <div class="actions" style="grid-column:1/-1;justify-content:flex-end;margin-top:2px"><span class="id" style="margin-right:auto"></span><button class="btn red" data-reset="${l.location_id}">Reset data</button><button class="btn red" data-del="${l.location_id}">Delete location</button></div>`;
+      <div class="actions" style="grid-column:1/-1;justify-content:flex-end;margin-top:2px"><label class="id" style="margin-right:auto;display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" data-bk="${l.location_id}" ${l.backup_enabled!==false?'checked':''}> include in monthly backup</label><button class="btn red" data-reset="${l.location_id}">Reset data</button><button class="btn red" data-del="${l.location_id}">Delete location</button></div>`;
     if(!d){d=document.createElement('div');d.className='row';d.dataset.loc=l.location_id;d.innerHTML=html;box.appendChild(d);renderPackages(l.location_id)}
     else if(d.dataset.html!==html){const pk=d.querySelector('.pkgs')?.innerHTML||'';d.innerHTML=html;d.querySelector('.pkgs').innerHTML=pk;renderPackages(l.location_id)}
     d.dataset.html=html;
@@ -135,6 +153,7 @@ async function renderPackages(loc){
       <button class="btn red" data-dissolve="${p.id}" title="${p.locked===false?'Delete this export record':'Release these contacts back into the pool'}">${p.locked===false?'remove':'dissolve'}</button></div>`).join('');
   if(next!==prev)el.innerHTML=next;
 }
+document.addEventListener('change',async e=>{const c=e.target.closest('input[data-bk]');if(c){await api(`/api/locations/${c.dataset.bk}/backup-enabled`,{method:'POST',body:{enabled:c.checked}});toast(c.checked?'Included in backups':'Excluded from backups')}});
 document.addEventListener('click',async e=>{
   const pb=e.target.closest('button[data-pkg]');
   if(pb){const r=await api(`/api/locations/${pb.dataset.pkg}/packages`,{method:'POST',body:{size:Number(pb.dataset.size)}});toast(r.error||`Package #${r.id} queued (${r.contact_count} contacts)`);renderPackages(pb.dataset.pkg);return}
@@ -155,8 +174,18 @@ document.addEventListener('click',async e=>{
 });
 $('#addLoc').onclick=async()=>{const r=await api('/api/locations',{method:'POST',body:{locationId:$('#locId').value.trim(),name:$('#locName').value.trim(),pitToken:$('#locPit').value.trim()}});
   toast(r.error||r.warning||`Saved ${r.name||''}`);$('#locId').value=$('#locName').value=$('#locPit').value='';load()};
-$('#importAgency').onclick=async()=>{const r=await api('/api/locations/import-agency',{method:'POST'});toast(r.error||`Imported ${r.imported} locations`);load()};
-loadSources();load();setInterval(load,8000);
+async function loadBackup(){
+  const b=await api('/api/backup');const s=b.schedule;
+  $('#bkEnabled').checked=!!s.enabled;$('#bkDay').value=s.day;$('#bkHour').value=s.hour;$('#bkMode').value=s.mode;$('#bkImport').checked=!!s.importFirst;$('#bkTz').textContent=b.tz;
+  const box=$('#bkSrcs');if(!box.querySelector('label'))b.sources.forEach(x=>{const l=document.createElement('label');l.innerHTML=`<input type=checkbox value="${x}" ${s.sources.includes(x)?'checked':''}> ${x}`;box.appendChild(l)});
+  const cred=b.credential?`credential: ${b.credential} · company ${b.companyId?`<b>${b.companyId}</b> (auto-detected)`:`<span class="f">not detected${b.companyIdError?': '+b.companyIdError:''}</span>`}`:'<span class="f">no agency credential — set GHL_AGENCY_PIT in Railway</span>';
+  $('#bkStatus').innerHTML=`${b.counts.total} sub-accounts · ${b.counts.enabled} enabled · ${b.counts.backed_up} backed up at least once${b.counts.in_progress?` · ${b.counts.in_progress} running`:''} · ${cred}`;
+  const l=s.last;$('#bkLast').textContent=l?`Last run ${new Date(l.at).toLocaleString()} (${l.trigger}, ${l.mode}): ${l.queued} queued, ${l.skipped} busy${l.imported?.total!=null?`, ${l.imported.imported} new sub-accounts imported`:''}${l.imported?.error?' · import failed: '+l.imported.error:''}`:'No backup run yet.';
+}
+$('#bkSave').onclick=async()=>{const r=await api('/api/backup/schedule',{method:'POST',body:{enabled:$('#bkEnabled').checked,day:Number($('#bkDay').value),hour:Number($('#bkHour').value),mode:$('#bkMode').value,importFirst:$('#bkImport').checked,sources:[...document.querySelectorAll('#bkSrcs input:checked')].map(i=>i.value)}});toast(r.error||'Schedule saved');loadBackup()};
+$('#bkNow').onclick=async()=>{if(!confirm('Queue a backup for every enabled sub-account now?'))return;const r=await api('/api/backup/run',{method:'POST',body:{}});toast(r.error||`Queued ${r.queued} sub-accounts`);loadBackup();load()};
+$('#importAgency2').onclick=async()=>{const r=await api('/api/locations/import-agency',{method:'POST'});toast(r.error||`${r.total} sub-accounts (${r.imported} new)`);loadBackup();load()};
+loadSources();load();loadBackup();setInterval(load,8000);setInterval(loadBackup,30000);
 </script>
 </body>
 </html>

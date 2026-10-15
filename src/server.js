@@ -4,6 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrate, q } from './db.js';
 import { startWorker } from './runner.js';
+import { startScheduler, getSchedule, setSchedule, backupAll } from './scheduler.js';
+import { importAgencyLocations, agencyToken, companyId } from './ghl.js';
 import { ALL_SOURCES } from './sources/index.js';
 import { getObjectStream } from './storage.js';
 import { ghl, parseFileFieldValue } from './ghl.js';
@@ -150,10 +152,10 @@ app.get('/api/locations', async (_req, res) => {
     const { rows } = await q(`
       WITH f AS (SELECT location_id, count(*) FILTER (WHERE status='done') AS files_done, count(*) FILTER (WHERE status='failed') AS files_failed,
                         coalesce(sum(size_bytes) FILTER (WHERE status='done'),0) AS bytes FROM files GROUP BY location_id),
-           j AS (SELECT DISTINCT ON (location_id) location_id, id, status, sources, progress, since, created_at, finished_at FROM jobs ORDER BY location_id, id DESC)
-      SELECT l.location_id, l.name, (l.pit_token IS NOT NULL) AS has_pit, l.created_at,
+           j AS (SELECT DISTINCT ON (location_id) location_id, id, status, sources, progress, since, trigger, created_at, finished_at FROM jobs ORDER BY location_id, id DESC)
+      SELECT l.location_id, l.name, (l.pit_token IS NOT NULL) AS has_pit, l.backup_enabled, l.created_at,
              coalesce(f.files_done,0) AS files_done, coalesce(f.files_failed,0) AS files_failed, coalesce(f.bytes,0) AS bytes,
-             CASE WHEN j.id IS NULL THEN NULL ELSE json_build_object('id',j.id,'status',j.status,'sources',j.sources,'progress',j.progress,'since',j.since,'created_at',j.created_at,'finished_at',j.finished_at) END AS last_job
+             CASE WHEN j.id IS NULL THEN NULL ELSE json_build_object('id',j.id,'status',j.status,'sources',j.sources,'progress',j.progress,'since',j.since,'trigger',j.trigger,'created_at',j.created_at,'finished_at',j.finished_at) END AS last_job
       FROM locations l LEFT JOIN f ON f.location_id=l.location_id LEFT JOIN j ON j.location_id=l.location_id
       ORDER BY l.name NULLS LAST, l.location_id`);
     res.json(rows);
@@ -196,25 +198,27 @@ app.delete('/api/locations/:id', async (req, res) => {
   catch (err) { res.status(409).json({ error: err.message }); }
 });
 
-// Bulk-import every sub-account under the agency (requires GHL_AGENCY_ACCESS_TOKEN + GHL_COMPANY_ID).
+// Bulk-import every sub-account under the agency.
 app.post('/api/locations/import-agency', async (_req, res) => {
-  const token = process.env.GHL_AGENCY_ACCESS_TOKEN, companyId = process.env.GHL_COMPANY_ID;
-  if (!token || !companyId) return res.status(400).json({ error: 'agency token not configured' });
-  let skip = 0, imported = 0;
-  while (true) {
-    const r = await fetch(`https://services.leadconnectorhq.com/locations/search?companyId=${companyId}&limit=100&skip=${skip}`,
-      { headers: { Authorization: `Bearer ${token}`, Version: process.env.GHL_API_VERSION || '2021-07-28', Accept: 'application/json' } });
-    if (!r.ok) return res.status(502).json({ error: await r.text() });
-    const { locations = [] } = await r.json();
-    for (const l of locations) {
-      await q(`INSERT INTO locations (location_id, name) VALUES ($1,$2) ON CONFLICT (location_id) DO UPDATE SET name=EXCLUDED.name`, [l.id, l.name]);
-      imported++;
-    }
-    if (locations.length < 100) break;
-    skip += 100;
-  }
-  res.json({ imported });
+  try { res.json(await importAgencyLocations()); } catch (err) { res.status(400).json({ error: err.message }); }
 });
+
+// --- agency backup schedule ------------------------------------------------------------
+app.get('/api/backup', async (_req, res) => {
+  const sch = await getSchedule();
+  const { rows: [c] } = await q(`SELECT count(*) AS total, count(*) FILTER (WHERE backup_enabled) AS enabled,
+    count(*) FILTER (WHERE EXISTS (SELECT 1 FROM jobs j WHERE j.location_id=l.location_id AND j.status='done')) AS backed_up,
+    count(*) FILTER (WHERE EXISTS (SELECT 1 FROM jobs j WHERE j.location_id=l.location_id AND j.status IN ('queued','running'))) AS in_progress FROM locations l`);
+  let credential = process.env.GHL_AGENCY_PIT ? 'agency PIT' : null;
+  if (!credential) { try { credential = (await agencyToken()) ? 'agency OAuth' : null; } catch { credential = null; } }
+  let cid = null, cidError = null; try { cid = credential ? await companyId() : null; } catch (err) { cidError = err.message; }
+  res.json({ schedule: sch, counts: Object.fromEntries(Object.entries(c).map(([k, v]) => [k, Number(v)])), credential, companyId: cid, companyIdError: cidError, tz: process.env.TZ || 'UTC', sources: ALL_SOURCES });
+});
+app.post('/api/backup/schedule', async (req, res) => res.json(await setSchedule(req.body || {})));
+app.post('/api/backup/run', async (req, res) => {
+  try { res.json(await backupAll({ mode: req.body?.mode, trigger: 'manual' })); } catch (err) { res.status(400).json({ error: err.message }); }
+});
+app.post('/api/locations/:id/backup-enabled', async (req, res) => { await q('UPDATE locations SET backup_enabled=$2 WHERE location_id=$1', [req.params.id, !!req.body?.enabled]); res.json({ ok: true }); });
 
 // --- jobs -----------------------------------------------------------------------------
 app.post('/api/jobs', async (req, res) => {
@@ -515,6 +519,7 @@ for (const k of ['R2_ACCOUNT_ID','R2_ACCESS_KEY_ID','R2_SECRET_ACCESS_KEY','R2_B
 migrate()
   .then(() => {
     startWorker();
+    startScheduler();
     app.listen(port, () => console.log(`ghl-vault listening on ${port}`));
   })
   .catch(err => { console.error('FATAL on startup:', err.message); process.exit(1); });

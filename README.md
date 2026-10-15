@@ -115,3 +115,14 @@ available through the public API; "active days" is the closest proxy.
 filename, or any custom-field value (EIN, industry…). Click a contact for the full record, every document (direct
 download), opportunities, message counts, a link into GHL, and a list of other sub-accounts holding the same email or
 phone. Data is the vault copy, so run exports / Sync new to keep it current.
+
+## Whole-agency setup + monthly auto-backup
+
+1. Set `GHL_COMPANY_ID` and an agency credential in Railway. Easiest: an **agency-level Private Integration** token
+   (`GHL_AGENCY_PIT`) with read scopes for contacts, conversations, opportunities, forms, surveys, medias, locations,
+   users, calendars. Alternatively a marketplace-app OAuth token with `GHL_CLIENT_ID/SECRET/REFRESH_TOKEN`; it refreshes itself.
+2. Click **Import all sub-accounts**. Every location lands in the vault with no per-location token needed.
+3. In the **Agency backup** panel choose day-of-month, hour (`TZ` env), sources, incremental vs full, and whether to
+   import new sub-accounts first. Save. Each month the scheduler queues one job per enabled location (first run is a
+   full crawl, later ones incremental). Untick "include in monthly backup" on any location to skip it.
+4. **Backup all now** does the same on demand. Jobs tagged "auto" came from the schedule.

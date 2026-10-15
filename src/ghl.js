@@ -22,17 +22,45 @@ export const sleep = ms => new Promise(r => setTimeout(r, ms));
 // --- token resolution -----------------------------------------------------------
 // Option A: Private Integration Token stored per location.
 // Option B: agency OAuth token -> mint a location token (cached ~23h; GHL tokens live 24h).
+// Agency credential, in order of preference:
+//   1. GHL_AGENCY_PIT       — an agency-level Private Integration token (Agency Settings → Private Integrations).
+//                             Used directly for every sub-account call; simplest for 85+ accounts.
+//   2. GHL_AGENCY_ACCESS_TOKEN (+ GHL_CLIENT_ID/SECRET/REFRESH_TOKEN) — marketplace-app OAuth; location tokens are minted
+//                             per sub-account and the agency token is refreshed automatically when it expires.
+export async function agencyToken() {
+  if (process.env.GHL_AGENCY_PIT) return process.env.GHL_AGENCY_PIT;
+  const { rows: [row] } = await q(`SELECT value FROM settings WHERE key='agency_oauth'`).catch(() => ({ rows: [] }));
+  const saved = row?.value || {};
+  const access = saved.access_token || process.env.GHL_AGENCY_ACCESS_TOKEN;
+  const refresh = saved.refresh_token || process.env.GHL_AGENCY_REFRESH_TOKEN;
+  const exp = saved.expires_at ? new Date(saved.expires_at) : null;
+  if (access && (!exp || exp > new Date(Date.now() + 10 * 60_000))) return access;
+  if (!refresh || !process.env.GHL_CLIENT_ID || !process.env.GHL_CLIENT_SECRET) return access || null;
+  const res = await fetch(`${BASE}/oauth/token`, {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+    body: new URLSearchParams({ client_id: process.env.GHL_CLIENT_ID, client_secret: process.env.GHL_CLIENT_SECRET, grant_type: 'refresh_token', refresh_token: refresh, user_type: 'Company' }),
+  });
+  if (!res.ok) throw new Error(`agency token refresh failed ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const d = await res.json();
+  const value = { access_token: d.access_token, refresh_token: d.refresh_token || refresh, expires_at: new Date(Date.now() + (d.expires_in || 86_400) * 1000) };
+  await q(`INSERT INTO settings (key, value) VALUES ('agency_oauth', $1) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`, [value]);
+  return d.access_token;
+}
+
+const companyId_safe = () => companyId().catch(() => null);
+
 export async function getToken(locationId) {
   const { rows: [loc] } = await q('SELECT * FROM locations WHERE location_id=$1', [locationId]);
   if (!loc) throw new Error(`Unknown location ${locationId}`);
   if (loc.pit_token) return loc.pit_token;
+  if (process.env.GHL_AGENCY_PIT) return process.env.GHL_AGENCY_PIT;
 
   const fresh = loc.oauth_token && loc.oauth_expires && new Date(loc.oauth_expires) > new Date(Date.now() + 5 * 60_000);
   if (fresh) return loc.oauth_token;
 
-  const agency = process.env.GHL_AGENCY_ACCESS_TOKEN;
-  const companyId = process.env.GHL_COMPANY_ID;
-  if (!agency || !companyId) throw new Error(`No PIT for ${locationId} and no agency OAuth token configured`);
+  const agency = await agencyToken();
+  const companyId = await companyId_safe();
+  if (!agency || !companyId) throw new Error(`No PIT for ${locationId} and no agency credential configured (GHL_AGENCY_PIT or agency OAuth)`);
 
   const res = await fetch(`${BASE}/oauth/locationToken`, {
     method: 'POST',
@@ -44,6 +72,43 @@ export async function getToken(locationId) {
   const expires = new Date(Date.now() + (data.expires_in || 86_400) * 1000 - 60 * 60_000);
   await q('UPDATE locations SET oauth_token=$2, oauth_expires=$3 WHERE location_id=$1', [locationId, data.access_token, expires]);
   return data.access_token;
+}
+
+// Pull every sub-account under the agency into the locations table. Returns { imported, total }.
+// Company (agency) id: env var, else saved setting, else detected from the agency token.
+export async function companyId() {
+  if (process.env.GHL_COMPANY_ID) return process.env.GHL_COMPANY_ID;
+  const { rows: [r] } = await q(`SELECT value FROM settings WHERE key='company'`);
+  if (r?.value?.id) return r.value.id;
+  const token = await agencyToken();
+  if (!token) return null;
+  // /locations/search without companyId returns the agency's own locations for an agency token; each carries companyId.
+  const res = await fetch(`${BASE}/locations/search?limit=1`, { headers: { Authorization: `Bearer ${token}`, Version: VERSION, Accept: 'application/json' } });
+  if (!res.ok) throw new Error(`could not detect company id (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  const d = await res.json();
+  const id = d.locations?.[0]?.companyId;
+  if (!id) throw new Error('could not detect company id: token returned no locations');
+  await q(`INSERT INTO settings (key, value) VALUES ('company', $1) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`, [{ id, detectedAt: new Date() }]);
+  return id;
+}
+
+export async function importAgencyLocations() {
+  const token = await agencyToken(); const companyId_ = await companyId();
+  const companyId = companyId_;
+  if (!token || !companyId) throw new Error('Agency credential not configured: set GHL_AGENCY_PIT (or agency OAuth vars) in Railway');
+  let skip = 0, imported = 0, total = 0;
+  while (true) {
+    const r = await fetch(`${BASE}/locations/search?companyId=${companyId}&limit=100&skip=${skip}`, { headers: { Authorization: `Bearer ${token}`, Version: VERSION, Accept: 'application/json' } });
+    if (!r.ok) throw new Error(`locations/search ${r.status}: ${(await r.text()).slice(0, 300)}`);
+    const { locations = [] } = await r.json();
+    for (const l of locations) {
+      const { rowCount } = await q(`INSERT INTO locations (location_id, name) VALUES ($1,$2) ON CONFLICT (location_id) DO UPDATE SET name=EXCLUDED.name RETURNING (xmax = 0) AS inserted`, [l.id, l.name]);
+      total++; imported += rowCount ? 1 : 0;
+    }
+    if (locations.length < 100) break;
+    skip += 100;
+  }
+  return { imported, total };
 }
 
 // --- generic request with retry -------------------------------------------------

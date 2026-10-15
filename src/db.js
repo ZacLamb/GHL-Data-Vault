@@ -176,6 +176,9 @@ export async function migrate() {
     CREATE INDEX IF NOT EXISTS contacts_phone_digits ON contacts (regexp_replace(coalesce(phone,''), '\D', '', 'g'));
     CREATE INDEX IF NOT EXISTS contacts_name_trgm ON contacts USING gin ((coalesce(first_name,'')||' '||coalesce(last_name,'')||' '||coalesce(company,'')||' '||coalesce(email,'')) gin_trgm_ops);
     CREATE INDEX IF NOT EXISTS files_name_trgm ON files USING gin (coalesce(original_filename,'') gin_trgm_ops);
+    CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value JSONB NOT NULL DEFAULT '{}', updated_at TIMESTAMPTZ DEFAULT now());
+    ALTER TABLE locations ADD COLUMN IF NOT EXISTS backup_enabled BOOLEAN NOT NULL DEFAULT true;
+    ALTER TABLE jobs ADD COLUMN IF NOT EXISTS trigger TEXT DEFAULT 'manual';   -- manual | scheduled
     CREATE TABLE IF NOT EXISTS shares (            -- public download pages for prepared exports
       token TEXT PRIMARY KEY, location_id TEXT NOT NULL, scope TEXT NOT NULL, label TEXT,
       expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ DEFAULT now()
