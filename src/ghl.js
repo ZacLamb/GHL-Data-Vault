@@ -33,9 +33,12 @@ export const OAUTH_SCOPES = [
   'forms.readonly', 'surveys.readonly', 'medias.readonly', 'users.readonly', 'calendars/events.readonly', 'calendars.readonly',
 ];
 export function oauthAuthorizeUrl(redirectUri) {
-  const u = new URL('https://marketplace.gohighlevel.com/oauth/chooselocation');
+  const u = new URL('https://marketplace.gohighlevel.com/v2/oauth/chooselocation');
   u.searchParams.set('response_type', 'code'); u.searchParams.set('redirect_uri', redirectUri);
   u.searchParams.set('client_id', process.env.GHL_CLIENT_ID || ''); u.searchParams.set('scope', OAUTH_SCOPES.join(' '));
+  // Draft (unpublished) private apps need the app version id; it equals the app id, which is the client id's prefix.
+  const versionId = process.env.GHL_APP_VERSION_ID || (process.env.GHL_CLIENT_ID || '').split('-')[0];
+  if (versionId) u.searchParams.set('version_id', versionId);
   return u.toString();
 }
 // Exchange the authorization code from the marketplace install for agency tokens and store them.
