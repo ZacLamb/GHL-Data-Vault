@@ -78,6 +78,7 @@
       <span class="gl" style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber)">Agency backup</span>
       <span id="bkStatus" class="id"></span>
       <span style="flex:1"></span>
+      <button class="btn" id="bkTest" title="Mint a sub-account token from the agency credential and read one contact page">Test credential</button>
       <button class="btn" id="importAgency2" title="Pull every sub-account under the agency into the vault">Import all sub-accounts</button>
       <button class="btn primary" id="bkNow" title="Queue a backup for every enabled sub-account right now">Backup all now</button>
     </div>
@@ -184,6 +185,7 @@ async function loadBackup(){
 }
 $('#bkSave').onclick=async()=>{const r=await api('/api/backup/schedule',{method:'POST',body:{enabled:$('#bkEnabled').checked,day:Number($('#bkDay').value),hour:Number($('#bkHour').value),mode:$('#bkMode').value,importFirst:$('#bkImport').checked,sources:[...document.querySelectorAll('#bkSrcs input:checked')].map(i=>i.value)}});toast(r.error||'Schedule saved');loadBackup()};
 $('#bkNow').onclick=async()=>{if(!confirm('Queue a backup for every enabled sub-account now?'))return;const r=await api('/api/backup/run',{method:'POST',body:{}});toast(r.error||`Queued ${r.queued} sub-accounts`);loadBackup();load()};
+$('#bkTest').onclick=async()=>{toast('Testing…');const r=await api('/api/backup/test',{method:'POST',body:{}});alert(r.ok?`OK — minted a token for ${r.location} and read contacts (${r.contacts} total)`:`FAILED\n\n${r.error}`)};
 $('#importAgency2').onclick=async()=>{const r=await api('/api/locations/import-agency',{method:'POST'});toast(r.error||`${r.total} sub-accounts (${r.imported} new)`);loadBackup();load()};
 loadSources();load();loadBackup();setInterval(load,8000);setInterval(loadBackup,30000);
 </script>

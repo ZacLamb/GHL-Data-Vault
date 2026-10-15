@@ -53,11 +53,12 @@ export async function getToken(locationId) {
   const { rows: [loc] } = await q('SELECT * FROM locations WHERE location_id=$1', [locationId]);
   if (!loc) throw new Error(`Unknown location ${locationId}`);
   if (loc.pit_token) return loc.pit_token;
-  if (process.env.GHL_AGENCY_PIT) return process.env.GHL_AGENCY_PIT;
 
   const fresh = loc.oauth_token && loc.oauth_expires && new Date(loc.oauth_expires) > new Date(Date.now() + 5 * 60_000);
   if (fresh) return loc.oauth_token;
 
+  // Agency-level tokens (PIT or OAuth) can't call sub-account endpoints directly — GHL answers
+  // "not authorized for this scope" / "user type mismatch". They must be exchanged for a location token.
   const agency = await agencyToken();
   const cid = await companyId_safe();
   if (!agency || !cid) throw new Error(`No PIT for ${locationId} and no agency credential configured (GHL_AGENCY_PIT or agency OAuth)`);
@@ -67,14 +68,18 @@ export async function getToken(locationId) {
     headers: { Authorization: `Bearer ${agency}`, Version: VERSION, 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
     body: new URLSearchParams({ companyId: cid, locationId }),
   });
-  if (!res.ok) throw new Error(`locationToken failed ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const body = (await res.text()).slice(0, 300);
+    throw new Error(`Could not mint a location token for ${locationId} (${res.status}): ${body}. ` +
+      `The agency token needs the "oauth.write" scope plus the sub-account scopes it should grant (contacts, conversations, opportunities, forms, surveys, medias, users, calendars). ` +
+      `Alternatively paste a per-location Private Integration token for this location.`);
+  }
   const data = await res.json();
   const expires = new Date(Date.now() + (data.expires_in || 86_400) * 1000 - 60 * 60_000);
   await q('UPDATE locations SET oauth_token=$2, oauth_expires=$3 WHERE location_id=$1', [locationId, data.access_token, expires]);
   return data.access_token;
 }
 
-// Pull every sub-account under the agency into the locations table. Returns { imported, total }.
 // Company (agency) id: env var, else saved setting, else detected from the agency token.
 export async function companyId() {
   if (process.env.GHL_COMPANY_ID) return process.env.GHL_COMPANY_ID;

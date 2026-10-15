@@ -214,6 +214,16 @@ app.get('/api/backup', async (_req, res) => {
   let cid = null, cidError = null; try { cid = credential ? await companyId() : null; } catch (err) { cidError = err.message; }
   res.json({ schedule: sch, counts: Object.fromEntries(Object.entries(c).map(([k, v]) => [k, Number(v)])), credential, companyId: cid, companyIdError: cidError, tz: process.env.TZ || 'UTC', sources: ALL_SOURCES });
 });
+app.post('/api/backup/test', async (req, res) => {
+  // End-to-end check: can we mint a location token and read one contact page with it?
+  try {
+    const { rows: [loc] } = await q(`SELECT location_id, name FROM locations WHERE pit_token IS NULL ORDER BY name LIMIT 1`);
+    if (!loc) return res.json({ ok: true, note: 'every location has its own PIT; agency token not needed' });
+    await q('UPDATE locations SET oauth_expires=NULL WHERE location_id=$1', [loc.location_id]);   // force a fresh mint
+    const d = await ghl(loc.location_id, 'POST', '/contacts/search', { body: { locationId: loc.location_id, pageLimit: 1 } });
+    res.json({ ok: true, location: loc.name || loc.location_id, contacts: d.total ?? (d.contacts || []).length });
+  } catch (err) { res.status(400).json({ ok: false, error: err.message }); }
+});
 app.post('/api/backup/schedule', async (req, res) => res.json(await setSchedule(req.body || {})));
 app.post('/api/backup/run', async (req, res) => {
   try { res.json(await backupAll({ mode: req.body?.mode, trigger: 'manual' })); } catch (err) { res.status(400).json({ error: err.message }); }
