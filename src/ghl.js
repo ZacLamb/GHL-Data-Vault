@@ -27,8 +27,35 @@ export const sleep = ms => new Promise(r => setTimeout(r, ms));
 //                             Used directly for every sub-account call; simplest for 85+ accounts.
 //   2. GHL_AGENCY_ACCESS_TOKEN (+ GHL_CLIENT_ID/SECRET/REFRESH_TOKEN) — marketplace-app OAuth; location tokens are minted
 //                             per sub-account and the agency token is refreshed automatically when it expires.
+export const OAUTH_SCOPES = [
+  'oauth.write', 'oauth.readonly', 'locations.readonly', 'locations/customFields.readonly',
+  'contacts.readonly', 'conversations.readonly', 'conversations/message.readonly', 'opportunities.readonly',
+  'forms.readonly', 'surveys.readonly', 'medias.readonly', 'users.readonly', 'calendars/events.readonly', 'calendars.readonly',
+];
+export function oauthAuthorizeUrl(redirectUri) {
+  const u = new URL('https://marketplace.gohighlevel.com/oauth/chooselocation');
+  u.searchParams.set('response_type', 'code'); u.searchParams.set('redirect_uri', redirectUri);
+  u.searchParams.set('client_id', process.env.GHL_CLIENT_ID || ''); u.searchParams.set('scope', OAUTH_SCOPES.join(' '));
+  return u.toString();
+}
+// Exchange the authorization code from the marketplace install for agency tokens and store them.
+export async function oauthExchange(code, redirectUri) {
+  const res = await fetch(`${BASE}/oauth/token`, {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+    body: new URLSearchParams({ client_id: process.env.GHL_CLIENT_ID, client_secret: process.env.GHL_CLIENT_SECRET, grant_type: 'authorization_code', code, user_type: 'Company', redirect_uri: redirectUri }),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`OAuth exchange failed ${res.status}: ${JSON.stringify(d).slice(0, 300)}`);
+  if (d.userType && d.userType !== 'Company') throw new Error(`App was installed on a single sub-account (${d.userType}); re-install choosing your AGENCY so it covers every location`);
+  const value = { access_token: d.access_token, refresh_token: d.refresh_token, expires_at: new Date(Date.now() + (d.expires_in || 86_400) * 1000), companyId: d.companyId, installedAt: new Date() };
+  await q(`INSERT INTO settings (key, value) VALUES ('agency_oauth', $1) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`, [value]);
+  if (d.companyId) await q(`INSERT INTO settings (key, value) VALUES ('company', $1) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`, [{ id: d.companyId }]);
+  await q(`UPDATE locations SET oauth_token=NULL, oauth_expires=NULL`);   // re-mint location tokens from the new agency token
+  return value;
+}
+
 export async function agencyToken() {
-  if (process.env.GHL_AGENCY_PIT) return process.env.GHL_AGENCY_PIT;
+  if (process.env.GHL_AGENCY_PIT && !process.env.GHL_CLIENT_ID) return process.env.GHL_AGENCY_PIT;
   const { rows: [row] } = await q(`SELECT value FROM settings WHERE key='agency_oauth'`).catch(() => ({ rows: [] }));
   const saved = row?.value || {};
   const access = saved.access_token || process.env.GHL_AGENCY_ACCESS_TOKEN;

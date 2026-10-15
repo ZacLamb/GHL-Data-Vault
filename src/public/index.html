@@ -78,6 +78,7 @@
       <span class="gl" style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber)">Agency backup</span>
       <span id="bkStatus" class="id"></span>
       <span style="flex:1"></span>
+      <a class="btn primary" id="bkConnect" href="/oauth/start" style="display:none">Connect agency app</a>
       <button class="btn" id="bkTest" title="Mint a sub-account token from the agency credential and read one contact page">Test credential</button>
       <button class="btn" id="importAgency2" title="Pull every sub-account under the agency into the vault">Import all sub-accounts</button>
       <button class="btn primary" id="bkNow" title="Queue a backup for every enabled sub-account right now">Backup all now</button>
@@ -179,7 +180,8 @@ async function loadBackup(){
   const b=await api('/api/backup');const s=b.schedule;
   $('#bkEnabled').checked=!!s.enabled;$('#bkDay').value=s.day;$('#bkHour').value=s.hour;$('#bkMode').value=s.mode;$('#bkImport').checked=!!s.importFirst;$('#bkTz').textContent=b.tz;
   const box=$('#bkSrcs');if(!box.querySelector('label'))b.sources.forEach(x=>{const l=document.createElement('label');l.innerHTML=`<input type=checkbox value="${x}" ${s.sources.includes(x)?'checked':''}> ${x}`;box.appendChild(l)});
-  const cred=b.credential?`credential: ${b.credential} · company ${b.companyId?`<b>${b.companyId}</b> (auto-detected)`:`<span class="f">not detected${b.companyIdError?': '+b.companyIdError:''}</span>`}`:'<span class="f">no agency credential — set GHL_AGENCY_PIT in Railway</span>';
+  $('#bkConnect').style.display=b.oauthReady?'':'none';$('#bkConnect').textContent=b.oauthConnected?'Reconnect agency app':'Connect agency app';
+  const cred=b.oauthConnected?`credential: ${b.credential} · company <b>${b.companyId||'?'}</b>`:b.oauthReady?'<span class="f">app configured but not installed yet — click Connect agency app and approve it for your AGENCY</span>':b.credential?`<span class="f">${b.credential}</span>`:`<span class="f">no agency credential — create a private marketplace app, set GHL_CLIENT_ID + GHL_CLIENT_SECRET, redirect URL <code>${b.redirectUri}</code></span>`;
   $('#bkStatus').innerHTML=`${b.counts.total} sub-accounts · ${b.counts.enabled} enabled · ${b.counts.backed_up} backed up at least once${b.counts.in_progress?` · ${b.counts.in_progress} running`:''} · ${cred}`;
   const l=s.last;$('#bkLast').textContent=l?`Last run ${new Date(l.at).toLocaleString()} (${l.trigger}, ${l.mode}): ${l.queued} queued, ${l.skipped} busy${l.imported?.total!=null?`, ${l.imported.imported} new sub-accounts imported`:''}${l.imported?.error?' · import failed: '+l.imported.error:''}`:'No backup run yet.';
 }
@@ -187,6 +189,7 @@ $('#bkSave').onclick=async()=>{const r=await api('/api/backup/schedule',{method:
 $('#bkNow').onclick=async()=>{if(!confirm('Queue a backup for every enabled sub-account now?'))return;const r=await api('/api/backup/run',{method:'POST',body:{}});toast(r.error||`Queued ${r.queued} sub-accounts`);loadBackup();load()};
 $('#bkTest').onclick=async()=>{toast('Testing…');const r=await api('/api/backup/test',{method:'POST',body:{}});alert(r.ok?`OK — minted a token for ${r.location} and read contacts (${r.contacts} total)`:`FAILED\n\n${r.error}`)};
 $('#importAgency2').onclick=async()=>{const r=await api('/api/locations/import-agency',{method:'POST'});toast(r.error||`${r.total} sub-accounts (${r.imported} new)`);loadBackup();load()};
+if(new URLSearchParams(location.search).get('connected'))toast('Agency app connected');
 loadSources();load();loadBackup();setInterval(load,8000);setInterval(loadBackup,30000);
 </script>
 </body>

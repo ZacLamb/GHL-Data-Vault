@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { migrate, q } from './db.js';
 import { startWorker } from './runner.js';
 import { startScheduler, getSchedule, setSchedule, backupAll } from './scheduler.js';
-import { importAgencyLocations, agencyToken, companyId } from './ghl.js';
+import { importAgencyLocations, agencyToken, companyId, oauthAuthorizeUrl, oauthExchange } from './ghl.js';
 import { ALL_SOURCES } from './sources/index.js';
 import { getObjectStream } from './storage.js';
 import { ghl, parseFileFieldValue } from './ghl.js';
@@ -209,10 +209,16 @@ app.get('/api/backup', async (_req, res) => {
   const { rows: [c] } = await q(`SELECT count(*) AS total, count(*) FILTER (WHERE backup_enabled) AS enabled,
     count(*) FILTER (WHERE EXISTS (SELECT 1 FROM jobs j WHERE j.location_id=l.location_id AND j.status='done')) AS backed_up,
     count(*) FILTER (WHERE EXISTS (SELECT 1 FROM jobs j WHERE j.location_id=l.location_id AND j.status IN ('queued','running'))) AS in_progress FROM locations l`);
-  let credential = process.env.GHL_AGENCY_PIT ? 'agency PIT' : null;
-  if (!credential) { try { credential = (await agencyToken()) ? 'agency OAuth' : null; } catch { credential = null; } }
+  let credential = null;
+  if (process.env.GHL_CLIENT_ID) { try { credential = (await agencyToken()) ? 'agency app (OAuth)' : null; } catch { credential = null; } }
+  else if (process.env.GHL_AGENCY_PIT) credential = 'agency PIT (cannot read sub-accounts — connect the agency app)';
+  const oauthReady = !!(process.env.GHL_CLIENT_ID && process.env.GHL_CLIENT_SECRET);
   let cid = null, cidError = null; try { cid = credential ? await companyId() : null; } catch (err) { cidError = err.message; }
-  res.json({ schedule: sch, counts: Object.fromEntries(Object.entries(c).map(([k, v]) => [k, Number(v)])), credential, companyId: cid, companyIdError: cidError, tz: process.env.TZ || 'UTC', sources: ALL_SOURCES });
+  res.json({ schedule: sch, counts: Object.fromEntries(Object.entries(c).map(([k, v]) => [k, Number(v)])), credential, oauthReady, oauthConnected: !!(process.env.GHL_CLIENT_ID && credential), redirectUri: redirectUri(_req), companyId: cid, companyIdError: cidError, tz: process.env.TZ || 'UTC', sources: ALL_SOURCES });
+});
+app.get('/oauth/start', (req, res) => {
+  if (!process.env.GHL_CLIENT_ID || !process.env.GHL_CLIENT_SECRET) return res.status(400).send('Set GHL_CLIENT_ID and GHL_CLIENT_SECRET in Railway first');
+  res.redirect(oauthAuthorizeUrl(redirectUri(req)));
 });
 app.post('/api/backup/test', async (req, res) => {
   // End-to-end check: can we mint a location token and read one contact page with it?
