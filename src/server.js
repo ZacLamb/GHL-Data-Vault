@@ -19,6 +19,15 @@ import crypto from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+const redirectUri = req => `${req.get('x-forwarded-proto') || req.protocol}://${req.get('host')}/oauth/callback`;
+
+// Marketplace-app install callback (public: GHL redirects here after the agency approves the app).
+app.get('/oauth/callback', async (req, res) => {
+  if (req.query.error) return res.status(400).send(`GHL returned an error: ${req.query.error_description || req.query.error}`);
+  if (!req.query.code) return res.status(400).send('Missing code');
+  try { await oauthExchange(String(req.query.code), redirectUri(req)); res.redirect('/?connected=1'); }
+  catch (err) { res.status(400).type('html').send(`<pre style="font:14px monospace;padding:30px">Agency connect failed:\n\n${err.message}\n\n<a href="/">back</a></pre>`); }
+});
 // Any async route that throws must answer 500, not take the process down (Node exits on unhandled rejections).
 for (const m of ['get', 'post', 'put', 'delete']) {
   const orig = app[m].bind(app);
