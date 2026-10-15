@@ -108,3 +108,10 @@ available through the public API; "active days" is the closest proxy.
   AppointmentCreate, UserCreate…) and set the webhook URL to `https://<host>/webhooks/ghl?key=<WEBHOOK_KEY>`.
   Events land in the `events` table and surface as Notes / Tasks / Edits / Stage moves columns per user.
   `/api/locations/<id>/events` shows what event types have arrived. Logins are not published by GHL.
+
+## Master search
+
+`/search.html` searches every crawled sub-account at once: name, company, email, phone (digit match), contact ID,
+filename, or any custom-field value (EIN, industry…). Click a contact for the full record, every document (direct
+download), opportunities, message counts, a link into GHL, and a list of other sub-accounts holding the same email or
+phone. Data is the vault copy, so run exports / Sync new to keep it current.

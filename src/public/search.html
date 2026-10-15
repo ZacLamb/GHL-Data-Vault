@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GHL Vault · Master search</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#0f1210;--panel:#151a16;--line:#263029;--ink:#e6e9e4;--dim:#8a948c;--amber:#f2b33d;--green:#5fd38a;--red:#f06a5a;--blue:#6fb3ff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.5 "IBM Plex Mono",ui-monospace,monospace;background-image:radial-gradient(circle at 50% -10%,rgba(242,179,61,.1),transparent 50%)}
+  header{display:flex;align-items:baseline;gap:18px;padding:26px 36px 12px;border-bottom:1px solid var(--line)}
+  h1{font:italic 36px/1 "Instrument Serif",serif;margin:0}h1 small{font:11px "IBM Plex Mono",monospace;color:var(--amber);letter-spacing:.2em;text-transform:uppercase;margin-left:12px;vertical-align:middle}
+  header a{color:var(--dim);margin-left:auto}
+  main{padding:20px 36px 60px;max-width:1400px;margin:0 auto}
+  .totals{display:flex;gap:22px;color:var(--dim);font-size:12px;margin-bottom:18px}.totals b{color:var(--ink)}
+  .bar{display:flex;gap:10px;align-items:stretch;margin-bottom:16px}
+  input,select,button{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:2px;padding:10px 12px}
+  input#q{flex:1;font-size:15px}
+  button{cursor:pointer}button:hover{border-color:var(--amber);color:var(--amber)}
+  .tabs{display:flex;gap:4px;margin-bottom:12px}.tab{padding:7px 14px;border:1px solid var(--line);border-bottom:0;cursor:pointer;color:var(--dim);font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+  .tab.on{color:var(--amber);border-color:var(--amber);background:var(--panel)}
+  .card{background:var(--panel);border:1px solid var(--line);padding:14px 16px;border-radius:3px}
+  table{width:100%;border-collapse:collapse;font-size:12px}th{text-align:left;color:var(--dim);font-weight:500;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:8px;border-bottom:1px solid var(--amber)}
+  td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}tr.r{cursor:pointer}tr.r:hover td{background:rgba(255,255,255,.03)}
+  .id{color:var(--dim);font-size:11px}.loc{display:inline-block;border:1px solid var(--blue);color:var(--blue);padding:0 6px;border-radius:2px;font-size:10px;white-space:nowrap}
+  .tag{display:inline-block;border:1px solid var(--line);padding:0 5px;border-radius:2px;font-size:10px;margin:1px;color:var(--dim)}
+  a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
+  .pager{display:flex;gap:10px;justify-content:flex-end;align-items:center;margin-top:10px;color:var(--dim)}
+  .empty{color:var(--dim);padding:30px;text-align:center}
+  /* detail drawer */
+  #drawer{position:fixed;top:0;right:0;bottom:0;width:min(640px,100%);background:var(--bg);border-left:1px solid var(--line);transform:translateX(100%);transition:.2s;overflow:auto;padding:24px 28px;z-index:9}
+  #drawer.open{transform:none}#drawer h2{font:italic 24px/1.1 "Instrument Serif",serif;margin:0 0 4px}
+  #drawer h3{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);margin:22px 0 8px}
+  .kv{display:grid;grid-template-columns:150px 1fr;gap:4px 12px;font-size:12px}.kv span:nth-child(odd){color:var(--dim)}
+  .file{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line);font-size:12px}
+  .close{position:absolute;top:18px;right:20px;background:none;border:0;color:var(--dim);font-size:20px}
+  .hint{color:var(--dim);font-size:11px;margin-top:6px}
+</style>
+</head>
+<body>
+<header><h1>Master search<small>all sub-accounts</small></h1><a href="/">← locations</a></header>
+<main>
+  <div class="totals" id="totals"></div>
+  <form class="bar" id="f">
+    <input id="q" placeholder="Name, company, email, phone, contact ID, filename, EIN, any custom field value…" autofocus>
+    <select id="loc"><option value="">all sub-accounts</option></select>
+    <button type="submit" style="border-color:var(--amber);color:var(--amber)">Search</button>
+  </form>
+  <div class="hint">Searches the vault copy of every crawled sub-account. Exact email or contact ID matches come first; phone numbers match on digits regardless of formatting. Click a row for the full record, documents, and whether the same person exists in other accounts.</div>
+  <div class="tabs" style="margin-top:14px"><div class="tab on" data-t="contacts">Contacts <span id="nc"></span></div><div class="tab" data-t="files">Files <span id="nf"></span></div></div>
+  <div class="card"><div id="results" class="empty">Type something and press Enter.</div><div class="pager" id="pager"></div></div>
+</main>
+<div id="drawer"><button class="close" onclick="closeDrawer()">×</button><div id="dbody"></div></div>
+<script>
+const $=s=>document.querySelector(s);const api=p=>fetch(p).then(r=>r.json());const N=n=>Number(n||0).toLocaleString();
+const fmtB=n=>{n=Number(n||0);const u=['B','KB','MB','GB','TB'];let i=0;while(n>=1024&&i<4){n/=1024;i++}return n.toFixed(i?1:0)+' '+u[i]};
+const D=s=>s?new Date(s).toLocaleDateString():'—';const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let tab='contacts',page=0,LIMIT=50,last={contacts:null,files:null};
+api('/api/search/totals').then(t=>$('#totals').innerHTML=`<span><b>${N(t.locations)}</b> sub-accounts</span><span><b>${N(t.contacts)}</b> contacts</span><span><b>${N(t.files)}</b> documents</span><span><b>${fmtB(t.bytes)}</b></span>`);
+api('/api/locations').then(ls=>$('#loc').innerHTML='<option value="">all sub-accounts</option>'+ls.map(l=>`<option value="${l.location_id}">${esc(l.name||l.location_id)}</option>`).join(''));
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{tab=t.dataset.t;document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===t));page=0;run()});
+$('#f').onsubmit=e=>{e.preventDefault();page=0;last={contacts:null,files:null};run(true)};
+async function run(both){
+  const qv=$('#q').value.trim();if(!qv)return;const loc=$('#loc').value;
+  const qs=`q=${encodeURIComponent(qv)}&loc=${encodeURIComponent(loc)}&limit=${LIMIT}&offset=${page*LIMIT}`;
+  if(both){const [c,f]=await Promise.all([api('/api/search/contacts?'+qs),api('/api/search/files?'+qs)]);last.contacts=c;last.files=f;$('#nc').textContent=`(${N(c.total)})`;$('#nf').textContent=`(${N(f.total)})`}
+  else{last[tab]=await api(`/api/search/${tab}?`+qs)}
+  render();
+}
+function render(){
+  const r=last[tab];if(!r)return;const el=$('#results');
+  if(!r.rows.length){el.className='empty';el.textContent='No matches.';$('#pager').innerHTML='';return}el.className='';
+  if(tab==='contacts')el.innerHTML=`<table><thead><tr><th>Contact</th><th>Company</th><th>Sub-account</th><th>Location</th><th>Docs</th><th>Opps</th><th>Assigned</th><th>Added</th><th>Last msg</th></tr></thead><tbody>${r.rows.map(c=>`<tr class="r" data-loc="${c.location_id}" data-id="${c.contact_id}"><td><b>${esc([c.first_name,c.last_name].filter(Boolean).join(' ')||'—')}</b><div class="id">${esc(c.email||'')} ${esc(c.phone||'')}</div></td><td>${esc(c.company||'')}</td><td><span class="loc">${esc(c.location_name||c.location_id)}</span></td><td class="id">${esc([c.city,c.state].filter(Boolean).join(', '))}</td><td><b>${c.docs}</b></td><td>${c.opps}</td><td class="id">${esc(c.assigned_name||'')}</td><td class="id">${D(c.date_added)}</td><td class="id">${D(c.last_message)}</td></tr>`).join('')}</tbody></table>`;
+  else el.innerHTML=`<table><thead><tr><th>File</th><th>Field</th><th>Contact</th><th>Sub-account</th><th>Size</th><th>Uploaded</th><th></th></tr></thead><tbody>${r.rows.map(f=>`<tr><td><b>${esc(f.original_filename||f.r2_key.split('/').pop())}</b><div class="id">${esc(f.mime_type||'')}</div></td><td class="id">${esc(f.field_name||f.source)}</td><td><a href="#" data-loc="${f.location_id}" data-id="${f.contact_id||''}" class="cl">${esc([f.first_name,f.last_name].filter(Boolean).join(' ')||f.company||f.contact_id||'—')}</a></td><td><span class="loc">${esc(f.location_name||f.location_id)}</span></td><td class="id">${fmtB(f.size_bytes)}</td><td class="id">${D(f.uploaded_at)}</td><td><a href="/api/files/${f.id}/download">download</a></td></tr>`).join('')}</tbody></table>`;
+  const pages=Math.max(1,Math.ceil(r.total/LIMIT));$('#pager').innerHTML=`<span>${N(r.total)} results · page ${page+1} / ${pages}</span><button ${page<=0?'disabled':''} onclick="page--;run()">‹</button><button ${page>=pages-1?'disabled':''} onclick="page++;run()">›</button>`;
+  el.querySelectorAll('tr.r,.cl').forEach(x=>x.onclick=e=>{e.preventDefault();if(x.dataset.id)openContact(x.dataset.loc,x.dataset.id)});
+}
+async function openContact(loc,id){
+  const d=await api(`/api/search/contact/${loc}/${id}`);const c=d.contact;if(!c)return;
+  const custom=Object.entries(c.custom||{}).filter(([,v])=>v!==''&&v!=null);
+  $('#dbody').innerHTML=`<h2>${esc([c.first_name,c.last_name].filter(Boolean).join(' ')||c.company||id)}</h2><span class="loc">${esc(c.location_name||loc)}</span> <span class="id">${id}</span>
+    <p><a target="_blank" href="https://app.gohighlevel.com/v2/location/${loc}/contacts/detail/${id}">open in GHL ↗</a></p>
+    <h3>Record</h3><div class="kv">${[['Company',c.company],['Email',c.email],['Phone',c.phone],['Address',[c.address,c.city,c.state,c.postal_code].filter(Boolean).join(', ')],['Tags',(c.tags||[]).join(', ')],['Assigned to',c.assigned_name||c.assigned_to],['Source',c.source],['Added',D(c.date_added)],['Updated',D(c.date_updated)]].map(([k,v])=>`<span>${k}</span><span>${esc(v||'—')}</span>`).join('')}</div>
+    ${custom.length?`<h3>Custom fields</h3><div class="kv">${custom.map(([k,v])=>`<span>${esc(k)}</span><span>${esc(Array.isArray(v)?v.join(', '):v)}</span>`).join('')}</div>`:''}
+    <h3>Documents (${d.files.length})</h3>${d.files.map(f=>`<div class="file"><span>${esc(f.field_name||f.source)} <span class="id">· ${esc(f.original_filename||'')} · ${fmtB(f.size_bytes)} · ${D(f.uploaded_at)}</span></span><a href="/api/files/${f.id}/download">download</a></div>`).join('')||'<span class="id">none in vault</span>'}
+    <h3>Opportunities (${d.opportunities.length})</h3>${d.opportunities.map(o=>`<div class="file"><span>${esc(o.status)} · $${N(o.monetary_value)}</span><span class="id">${D(o.created_at)}</span></div>`).join('')||'<span class="id">none</span>'}
+    <h3>Messages</h3>${d.messages.map(m=>`<div class="file"><span>${esc(m.channel)} ${esc(m.direction)}</span><span class="id">${m.n} · last ${D(m.last)}</span></div>`).join('')||'<span class="id">none captured</span>'}
+    <h3>Also found in</h3>${d.alsoIn.map(a=>`<div class="file"><span><span class="loc">${esc(a.location_name||a.location_id)}</span> ${esc([a.first_name,a.last_name].filter(Boolean).join(' ')||a.company||'')}</span><a href="#" onclick="openContact('${a.location_id}','${a.contact_id}');return false">view</a></div>`).join('')||'<span class="id">no other sub-account has this email or phone</span>'}`;
+  $('#drawer').classList.add('open');
+}
+function closeDrawer(){$('#drawer').classList.remove('open')}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer()});
+</script>
+</body>
+</html>

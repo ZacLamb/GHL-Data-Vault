@@ -10,6 +10,7 @@ import { ghl, parseFileFieldValue } from './ghl.js';
 import { createPackage, dissolvePackage, PACKAGE_SIZES, STANDARD_COLUMNS } from './packager.js';
 import { listObjects, deletePrefix, presign } from './storage.js';
 import { queueBundles } from './bundler.js';
+import { searchContacts, searchFiles, contactDetail, agencyTotals } from './search.js';
 import { summary, breakdowns, search, searchAll } from './analytics.js';
 import { locationUsage, userUsage, dailySeries, agencyOverview } from './usage.js';
 import crypto from 'node:crypto';
@@ -487,6 +488,17 @@ app.delete('/api/locations/:id/report-token', async (req, res) => { await q('UPD
 app.get('/api/locations/:id/events', async (req, res) => {
   const { rows } = await q(`SELECT event_type, count(*) AS n, max(occurred_at) AS last FROM events WHERE location_id=$1 GROUP BY 1 ORDER BY 2 DESC`, [req.params.id]);
   res.json(rows);
+});
+
+// --- master search across all sub-accounts ---------------------------------------------
+app.get('/api/search/totals', async (_req, res) => res.json(await agencyTotals()));
+app.get('/api/search/contacts', async (req, res) => res.json(await searchContacts(req.query.q || '', { locationId: req.query.loc || null, limit: Math.min(200, Number(req.query.limit) || 50), offset: Number(req.query.offset) || 0 })));
+app.get('/api/search/files', async (req, res) => res.json(await searchFiles(req.query.q || '', { locationId: req.query.loc || null, limit: Math.min(200, Number(req.query.limit) || 50), offset: Number(req.query.offset) || 0 })));
+app.get('/api/search/contact/:loc/:id', async (req, res) => res.json(await contactDetail(req.params.loc, req.params.id)));
+app.get('/api/files/:id/download', async (req, res) => {
+  const { rows: [f] } = await q(`SELECT r2_key, original_filename FROM files WHERE id=$1 AND status='done'`, [req.params.id]);
+  if (!f?.r2_key) return res.status(404).send('not found');
+  res.redirect(await presign(f.r2_key, f.original_filename || f.r2_key.split('/').pop(), 3600));
 });
 
 app.get('/api/sources', (_req, res) => res.json(ALL_SOURCES));

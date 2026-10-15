@@ -171,6 +171,11 @@ export async function migrate() {
     ALTER TABLE package_contacts ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT true;
     ALTER TABLE package_contacts DROP CONSTRAINT IF EXISTS package_contacts_location_id_contact_id_key;
     CREATE UNIQUE INDEX IF NOT EXISTS package_contacts_locked_uniq ON package_contacts(location_id, contact_id) WHERE locked;
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+    CREATE INDEX IF NOT EXISTS contacts_email_lower ON contacts (lower(email));
+    CREATE INDEX IF NOT EXISTS contacts_phone_digits ON contacts (regexp_replace(coalesce(phone,''), '\D', '', 'g'));
+    CREATE INDEX IF NOT EXISTS contacts_name_trgm ON contacts USING gin ((coalesce(first_name,'')||' '||coalesce(last_name,'')||' '||coalesce(company,'')||' '||coalesce(email,'')) gin_trgm_ops);
+    CREATE INDEX IF NOT EXISTS files_name_trgm ON files USING gin (coalesce(original_filename,'') gin_trgm_ops);
     CREATE TABLE IF NOT EXISTS shares (            -- public download pages for prepared exports
       token TEXT PRIMARY KEY, location_id TEXT NOT NULL, scope TEXT NOT NULL, label TEXT,
       expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ DEFAULT now()
