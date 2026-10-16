@@ -2,6 +2,7 @@ import { q } from './db.js';
 import { SOURCES } from './sources/index.js';
 import { buildPackage } from './packager.js';
 import { buildBundle } from './bundler.js';
+import { runPush } from './pusher.js';
 
 const MAX = Number(process.env.MAX_CONCURRENT_JOBS || 8);
 const active = new Map(); // locationId -> Promise (one job or package per location at a time)
@@ -98,6 +99,16 @@ export async function tick() {
         try { await buildPackage(pkg); }
         catch (err) { await q(`UPDATE packages SET status='failed', error=$2 WHERE id=$1`, [pkg.id, String(err.message).slice(0, 500)]); throw err; }
       });
+    }
+    // pushes into another sub-account: rate-limited on the TARGET; keyed by push id so a crawl of the
+    // same location can run alongside (the per-location throttle is shared in-process anyway)
+    if (active.size >= MAX) return;
+    const { rows: pushes } = await q(`SELECT * FROM pushes WHERE status IN ('queued','running') AND (not_before IS NULL OR not_before <= now()) ORDER BY status DESC, id ASC LIMIT 5`);
+    for (const p of pushes) {
+      if (active.size >= MAX) return;
+      const slot = `push:${p.id}`;
+      if (active.has(slot)) continue;
+      launch(slot, () => runPush(p));
     }
     // zip bundles: independent of GHL, keyed as 'bundle:<id>' so they can run beside a crawl for the same location
     if (active.size >= MAX) return;

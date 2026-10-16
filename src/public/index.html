@@ -56,6 +56,7 @@
   .stats b{color:var(--ink);font-size:17px;display:block;font-family:"JetBrains Mono",monospace;letter-spacing:-.02em;font-weight:600;text-transform:none}
   .pkgrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:7px 0;font-size:12.5px;color:var(--dim);border-top:1px solid var(--line)}.pkgrow b{color:var(--ink)}
   .pkgrow .btn{padding:3px 8px;font-size:11.5px}
+  .pushform{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}.pushform label.field{min-width:0}.pushform label.field:nth-child(3){grid-column:1/-1}.pushform select,.pushform input{width:100%}
   @media(max-width:1100px){.layout.open{grid-template-columns:1fr}.layout.open main{display:none}aside{position:static;max-height:none}}
 </style>
 </head>
@@ -275,9 +276,10 @@ function renderDrawer(){
     <div class="sec"><span class="gl">Analyze</span><div class="gb"><a class="btn amber" href="/analytics.html?loc=${l.location_id}">Documents</a><a class="btn blue" href="/usage.html?loc=${l.location_id}">Usage</a></div></div>
     <div class="sec"><span class="gl">Export</span><div class="gb"><a class="btn" href="/api/locations/${l.location_id}/export" title="Zip parts with contacts.csv + manifest + all documents, downloaded straight from R2">Download files</a><a class="btn" href="/api/locations/${l.location_id}/manifest.csv">Manifest CSV</a>${Number(l.files_failed)?`<a class="btn red" href="/api/locations/${l.location_id}/failures">Failures</a>`:''}</div></div>
     <div class="sec" id="pkgs"><span class="gl">Rep packages</span><div class="dim">loading…</div></div>
+    <div class="sec" id="pushsec"><span class="gl">Push to another sub-account</span><div class="dim">loading…</div></div>
     <div class="sec"><span class="gl">Danger</span><div class="gb"><label class="dim" style="display:flex;gap:6px;align-items:center;margin-right:auto;cursor:pointer"><input type="checkbox" data-bk="${l.location_id}" ${l.backup_enabled!==false?'checked':''}> include in monthly backup</label><button class="btn red" data-reset="${l.location_id}">Reset data</button><button class="btn red" data-del="${l.location_id}">Delete location</button></div></div>`;
-  if(d.dataset.html!==html){const pk=d.querySelector('#pkgs')?.innerHTML;d.innerHTML=html;if(pk&&d.dataset.loc===l.location_id)d.querySelector('#pkgs').innerHTML=pk;d.dataset.html=html}
-  if(d.dataset.loc!==l.location_id||!d.dataset.pkgAt||Date.now()-d.dataset.pkgAt>8000){d.dataset.loc=l.location_id;d.dataset.pkgAt=Date.now();renderPackages(l.location_id)}
+  if(d.dataset.html!==html){const pk=d.querySelector('#pkgs')?.innerHTML,ps=d.querySelector('#pushsec')?.innerHTML;d.innerHTML=html;if(d.dataset.loc===l.location_id){if(pk)d.querySelector('#pkgs').innerHTML=pk;if(ps)d.querySelector('#pushsec').innerHTML=ps}d.dataset.html=html}
+  if(d.dataset.loc!==l.location_id||!d.dataset.pkgAt||Date.now()-d.dataset.pkgAt>8000){const fresh=d.dataset.loc!==l.location_id;d.dataset.loc=l.location_id;d.dataset.pkgAt=Date.now();renderPackages(l.location_id);renderPushes(l.location_id,fresh)}
 }
 async function renderPackages(loc){
   const [pool,pkgs]=await Promise.all([api(`/api/locations/${loc}/pool`),api(`/api/packages?locationId=${loc}`)]);
@@ -285,11 +287,55 @@ async function renderPackages(loc){
   const next=`<span class="gl">Rep packages · ${fmtN(pool.available)} of ${fmtN(pool.total)} not yet packaged</span><div class="gb" style="margin-bottom:6px">
     ${pool.sizes.map(s=>`<button class="btn" data-pkg="${loc}" data-size="${s}" ${s>pool.available?'disabled title="not enough unpackaged contacts"':''}>${s>=1000?s/1000+'k':s}</button>`).join('')}<a class="btn amber" href="/analytics.html?loc=${loc}" title="Filter contacts, pick columns and documents, then package">Custom…</a></div>`+
     pkgs.map(p=>`<div class="pkgrow"><span class="pill ${p.status}">${p.status}</span><b>#${p.id}</b>${p.locked===false?'<span class="dim">export</span>':''}<span>${fmtN(p.contact_count)} contacts · ${p.status==='done'?fmtN(p.file_count)+' files':`${fmtN(p.progress.copied||0)}/${fmtN(p.progress.total||'?')} copied`}${p.progress.failed?` · <span class="f">${p.progress.failed} failed</span>`:''}</span>
-      ${p.status==='done'?`<a class="btn" href="/api/packages/${p.id}/export">Files</a><a class="btn" href="/api/packages/${p.id}/contacts.csv">Contacts CSV</a><a class="btn" href="/api/packages/${p.id}/manifest.csv">Manifest</a>`:''}
+      ${p.status==='done'?`<a class="btn" href="/api/packages/${p.id}/export">Files</a><a class="btn" href="/api/packages/${p.id}/contacts.csv">Contacts CSV</a><a class="btn" href="/api/packages/${p.id}/manifest.csv">Manifest</a><button class="btn blue" data-pushpkg="${p.id}" title="Copy this package's contacts and documents into another sub-account">Push →</button>`:''}
       <button class="btn red" data-dissolve="${p.id}" title="${p.locked===false?'Delete this export record':'Release these contacts back into the pool'}">${p.locked===false?'remove':'dissolve'}</button></div>`).join('')||'<div class="dim" style="font-size:12px">none yet</div>';
   if(el.innerHTML!==next)el.innerHTML=next;
 }
 
+// ---------- push to another sub-account ----------
+const slug=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'').slice(0,40);
+async function renderPushes(loc,fresh){
+  const sec=$('#pushsec');if(!sec||state.sel!==loc)return;
+  if(fresh||!sec.querySelector('#pushForm')){
+    const me=state.locs.find(l=>l.location_id===loc);
+    const targets=state.locs.filter(l=>l.location_id!==loc&&!l.inactive).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+    const pkgs=await api(`/api/packages?locationId=${loc}`);
+    sec.innerHTML=`<span class="gl">Push to another sub-account</span>
+      <div class="hint" style="margin:0 0 10px">Copies contacts and their documents into the target through the API — matched by contact, not by folder name. The source stays untouched. Re-pushing updates instead of duplicating.</div>
+      <div id="pushForm" class="pushform">
+        <label class="field">Target sub-account<select id="pushTarget"><option value="">— choose —</option>${targets.map(t=>`<option value="${t.location_id}">${esc(t.name||t.location_id)}</option>`).join('')}</select></label>
+        <label class="field">What to push<select id="pushScope"><option value="all">Whole location · ${fmtN(me?.contacts)} contacts</option>${pkgs.filter(p=>p.status==='done').map(p=>`<option value="${p.id}">Package #${p.id} · ${fmtN(p.contact_count)} contacts</option>`).join('')}</select></label>
+        <label class="field">Tag added to pushed contacts<input id="pushTag" value="vault-push:${slug(me?.name||loc)}"></label>
+        <div class="checks" style="width:100%"><label><input type="checkbox" id="pushDocs" checked> Documents</label><label><input type="checkbox" id="pushCustom" checked> Custom field values</label><label><input type="checkbox" id="pushOpps"> Opportunities (pipelines matched by name)</label></div>
+        <div class="gb" style="width:100%"><button class="btn" id="pushPreview">Preview</button><button class="btn primary" id="pushStart" disabled>Start push</button><span id="pushMsg" class="dim" style="font-size:12px;align-self:center"></span></div>
+        <div id="pushPrev"></div>
+      </div>
+      <div id="pushList"></div>`;
+  }
+  const list=await api(`/api/pushes?locationId=${loc}`);const el=$('#pushList');if(!el||state.sel!==loc)return;
+  const next=list.map(p=>{const pr=p.progress||{};const st=p.status==='queued'&&p.not_before&&new Date(p.not_before)>Date.now()?'parked':p.status;
+    return `<div class="pkgrow"><span class="pill ${st}">${st==='parked'?'quota wait':st}</span><b>#${p.id}</b><span>${esc(p.source_location_id===loc?'→ '+(p.target_name||p.target_location_id):'← from '+(p.source_name||p.source_location_id))}${p.package_id?` · pkg #${p.package_id}`:''}</span>
+      <span>${fmtN(pr.contactsDone)}/${fmtN(pr.total)} contacts · ${fmtN(pr.filesDone)} files${pr.filesFailed?` · <span class="f">${fmtN(pr.filesFailed)} failed</span>`:''}${pr.oppsDone?` · ${fmtN(pr.oppsDone)} opps`:''}${pr.note&&st!=='done'?` · ${esc(pr.note)}`:''}${p.error?` · <span class="f">${esc(p.error)}</span>`:''}</span>
+      ${['queued','running'].includes(p.status)&&st!=='parked'?`<button class="btn sm" data-pushcancel="${p.id}">Stop</button>`:''}${['cancelled','failed'].includes(p.status)||st==='parked'?`<button class="btn sm" data-pushresume="${p.id}">${st==='parked'?'Try now':'Resume'}</button>`:''}${p.status!=='running'?`<button class="btn sm red" data-pushdel="${p.id}">remove</button>`:''}
+      ${pr.errors?.length?`<details style="width:100%"><summary class="dim" style="font-size:11px;cursor:pointer">${pr.errors.length} issue(s)</summary><pre>${esc(pr.errors.slice(0,50).join('\n'))}</pre></details>`:''}</div>`}).join('');
+  if(el.innerHTML!==next)el.innerHTML=next;
+}
+function pushBody(){const scope=$('#pushScope').value;return{targetLocationId:$('#pushTarget').value,...(scope==='all'?{sourceLocationId:state.sel}:{packageId:Number(scope)}),tag:$('#pushTag').value.trim()||null,include:{documents:$('#pushDocs').checked,customFields:$('#pushCustom').checked,opportunities:$('#pushOpps').checked}}}
+document.addEventListener('click',async e=>{
+  const pp=e.target.closest('button[data-pushpkg]');if(pp){const sc=$('#pushScope');if(sc){sc.value=pp.dataset.pushpkg;$('#pushTarget').focus();$('#pushsec').scrollIntoView({behavior:'smooth'})}return}
+  if(e.target.id==='pushPreview'){const b=pushBody();if(!b.targetLocationId)return toast('Choose a target sub-account');$('#pushMsg').textContent='checking target fields…';
+    const r=await api('/api/pushes/preview',{method:'POST',body:b});if(r.error){$('#pushMsg').textContent='';return toast(r.error)}
+    $('#pushMsg').textContent='';$('#pushStart').disabled=false;
+    $('#pushPrev').innerHTML=`<div class="stats" style="margin-top:4px"><span>contacts<b>${fmtN(r.contacts)}</b></span><span>documents<b>${fmtN(r.files)}</b></span><span>size<b>${fmtB(r.bytes)}</b></span>${b.include.opportunities?`<span>opportunities<b>${fmtN(r.opportunities)}</b></span>`:''}</div>
+      <div class="hint" style="margin:4px 0 6px">≈ ${fmtN(r.contacts*2+r.files)} API calls on the target (200k/day cap → ${Math.max(1,Math.ceil((r.contacts*2+r.files)/200000))} day${(r.contacts*2+r.files)>200000?'s':''}).</div>
+      <div class="kv" style="font-size:12px">${r.fields.map(f=>`<span>${esc(f.name)} <span class="id">${f.kind}</span></span><span class="${/created/.test(f.target)?'acc':/skipped/.test(f.target)?'f':'dim'}">${esc(f.target)}</span>`).join('')||'<span class="dim">no custom fields involved</span>'}</div>`;return}
+  if(e.target.id==='pushStart'){const b=pushBody();if(!b.targetLocationId)return toast('Choose a target sub-account');const tn=$('#pushTarget').selectedOptions[0].textContent;
+    if(!confirm(`Copy these contacts${b.include.documents?' and documents':''} into "${tn}"?\n\nThe source sub-account is not changed.`))return;
+    const r=await api('/api/pushes',{method:'POST',body:b});toast(r.error||`Push #${r.id} queued`);$('#pushStart').disabled=true;$('#pushPrev').innerHTML='';renderPushes(state.sel,false);return}
+  const pc=e.target.closest('button[data-pushcancel]');if(pc){await api(`/api/pushes/${pc.dataset.pushcancel}/cancel`,{method:'POST'});toast('Stopping');renderPushes(state.sel,false);return}
+  const pr=e.target.closest('button[data-pushresume]');if(pr){await api(`/api/pushes/${pr.dataset.pushresume}/resume`,{method:'POST'});toast('Resumed');renderPushes(state.sel,false);return}
+  const pd=e.target.closest('button[data-pushdel]');if(pd){if(!confirm('Remove this push record? (Nothing is deleted in GHL.)'))return;await api(`/api/pushes/${pd.dataset.pushdel}`,{method:'DELETE'});renderPushes(state.sel,false);return}
+});
 // ---------- events ----------
 $('#q').oninput=e=>{state.q=e.target.value.trim();state.page=1;renderTable()};
 $('#sort').onchange=e=>{state.sort=e.target.value;state.dir=1;localStorage.vaultSort=state.sort;renderTable()};

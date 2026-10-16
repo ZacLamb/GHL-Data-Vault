@@ -86,6 +86,28 @@ export async function migrate() {
     );
     ALTER TABLE jobs ADD COLUMN IF NOT EXISTS since TIMESTAMPTZ;
     ALTER TABLE jobs ADD COLUMN IF NOT EXISTS not_before TIMESTAMPTZ;   -- parked until GHL's daily quota resets   -- incremental: only contacts updated after this
+    -- Push vault data into another sub-account (copy). push_items makes re-runs idempotent.
+    CREATE TABLE IF NOT EXISTS pushes (
+      id                 SERIAL PRIMARY KEY,
+      source_location_id TEXT NOT NULL,
+      target_location_id TEXT NOT NULL,
+      package_id         INT,
+      label              TEXT,
+      options            JSONB NOT NULL DEFAULT '{}',
+      status             TEXT NOT NULL DEFAULT 'queued',   -- queued|running|done|failed|cancelled
+      progress           JSONB NOT NULL DEFAULT '{}',
+      error              TEXT,
+      not_before         TIMESTAMPTZ,
+      created_at         TIMESTAMPTZ DEFAULT now(), started_at TIMESTAMPTZ, finished_at TIMESTAMPTZ
+    );
+    CREATE TABLE IF NOT EXISTS push_items (
+      target_location_id TEXT NOT NULL,
+      kind               TEXT NOT NULL,      -- contact|file|opportunity
+      source_key         TEXT NOT NULL,      -- contact: src_loc:contact_id · file: files.id · opportunity: src_loc:opp_id
+      target_id          TEXT,
+      created_at         TIMESTAMPTZ DEFAULT now(),
+      PRIMARY KEY (target_location_id, kind, source_key)
+    );
     CREATE INDEX IF NOT EXISTS files_loc_status ON files(location_id, status);
     CREATE INDEX IF NOT EXISTS files_contact ON files(location_id, contact_id);
 
@@ -163,12 +185,6 @@ export async function migrate() {
     );
     CREATE INDEX IF NOT EXISTS events_loc_time ON events(location_id, occurred_at);
     CREATE INDEX IF NOT EXISTS events_loc_user ON events(location_id, user_id, event_type);
-    ALTER TABLE locations ADD COLUMN IF NOT EXISTS inactive BOOLEAN NOT NULL DEFAULT false;   -- GHL refuses tokens: paused/deactivated
-    -- one-time: flag locations whose latest job already failed with GHL's "Location is not active"
-    UPDATE locations l SET inactive=true, backup_enabled=false
-      WHERE NOT l.inactive AND EXISTS (
-        SELECT 1 FROM (SELECT DISTINCT ON (location_id) location_id, status, progress::text AS p FROM jobs ORDER BY location_id, id DESC) j
-        WHERE j.location_id=l.location_id AND j.status='failed' AND j.p ILIKE '%Location is not active%');
     ALTER TABLE files ADD COLUMN IF NOT EXISTS cdn_url TEXT;
     ALTER TABLE files ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMPTZ;   -- Last-Modified from GHL storage ≈ upload time
     CREATE INDEX IF NOT EXISTS files_loc_uploaded ON files(location_id, uploaded_at);
@@ -185,6 +201,12 @@ export async function migrate() {
     CREATE INDEX IF NOT EXISTS files_name_trgm ON files USING gin (coalesce(original_filename,'') gin_trgm_ops);
     CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value JSONB NOT NULL DEFAULT '{}', updated_at TIMESTAMPTZ DEFAULT now());
     ALTER TABLE locations ADD COLUMN IF NOT EXISTS backup_enabled BOOLEAN NOT NULL DEFAULT true;
+    ALTER TABLE locations ADD COLUMN IF NOT EXISTS inactive BOOLEAN NOT NULL DEFAULT false;   -- GHL refuses tokens: paused/deactivated
+    -- one-time: flag locations whose latest job already failed with GHL's "Location is not active"
+    UPDATE locations l SET inactive=true, backup_enabled=false
+      WHERE NOT l.inactive AND EXISTS (
+        SELECT 1 FROM (SELECT DISTINCT ON (location_id) location_id, status, progress::text AS p FROM jobs ORDER BY location_id, id DESC) j
+        WHERE j.location_id=l.location_id AND j.status='failed' AND j.p ILIKE '%Location is not active%');
     ALTER TABLE jobs ADD COLUMN IF NOT EXISTS trigger TEXT DEFAULT 'manual';   -- manual | scheduled
     CREATE TABLE IF NOT EXISTS shares (            -- public download pages for prepared exports
       token TEXT PRIMARY KEY, location_id TEXT NOT NULL, scope TEXT NOT NULL, label TEXT,

@@ -1,6 +1,6 @@
 import { q } from './db.js';
 
-const BASE = 'https://services.leadconnectorhq.com';
+const BASE = process.env.GHL_API_BASE || 'https://services.leadconnectorhq.com';
 const VERSION = process.env.GHL_API_VERSION || '2021-07-28';
 const MAX_PER_10S = Number(process.env.GHL_MAX_REQ_PER_10S || 95);
 
@@ -152,7 +152,7 @@ export async function importAgencyLocations() {
 }
 
 // --- generic request with retry -------------------------------------------------
-export async function ghl(locationId, method, path, { query, body, raw = false } = {}) {
+export async function ghl(locationId, method, path, { query, body, form, raw = false } = {}) {
   const url = new URL(BASE + path);
   if (query) for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);
 
@@ -167,9 +167,9 @@ export async function ghl(locationId, method, path, { query, body, raw = false }
           Authorization: `Bearer ${token}`,
           Version: VERSION,
           Accept: raw ? '*/*' : 'application/json',
-          ...(body ? { 'Content-Type': 'application/json' } : {}),
+          ...(body && !form ? { 'Content-Type': 'application/json' } : {}),
         },
-        body: body ? JSON.stringify(body) : undefined,
+        body: form ? form : body ? JSON.stringify(body) : undefined,   // form = FormData (multipart; fetch sets the boundary)
         // A hung connection must not stall a crawl forever: give up on headers after 60s
         // (raw downloads stream the body under storage.js's own timeout) and retry.
         signal: AbortSignal.timeout(raw ? 120_000 : 60_000),

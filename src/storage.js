@@ -7,7 +7,8 @@ import { getToken } from './ghl.js';
 
 export const r2 = new S3Client({
   region: 'auto',
-  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  endpoint: process.env.R2_ENDPOINT || `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  forcePathStyle: !!process.env.R2_ENDPOINT,
   credentials: { accessKeyId: process.env.R2_ACCESS_KEY_ID, secretAccessKey: process.env.R2_SECRET_ACCESS_KEY },
 });
 const BUCKET = process.env.R2_BUCKET;

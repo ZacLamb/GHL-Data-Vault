@@ -1,4 +1,5 @@
 import express from 'express';
+import { createPush, previewMapping } from './pusher.js';
 import archiver from 'archiver';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -437,6 +438,32 @@ app.get('/api/packages', async (req, res) => {
 });
 
 app.delete('/api/packages/:id', async (req, res) => { await dissolvePackage(req.params.id); res.json({ ok: true }); });
+
+// --- push to another sub-account -------------------------------------------------------
+app.post('/api/pushes/preview', async (req, res) => {
+  try { res.json(await previewMapping(req.body || {})); } catch (err) { res.status(400).json({ error: err.message }); }
+});
+app.post('/api/pushes', async (req, res) => {
+  try { res.json(await createPush(req.body || {})); } catch (err) { res.status(400).json({ error: err.message }); }
+});
+app.get('/api/pushes', async (req, res) => {
+  const loc = req.query.locationId || null;
+  const { rows } = await q(`
+    SELECT p.*, s.name AS source_name, t.name AS target_name
+    FROM pushes p LEFT JOIN locations s ON s.location_id=p.source_location_id LEFT JOIN locations t ON t.location_id=p.target_location_id
+    WHERE $1::text IS NULL OR p.source_location_id=$1 OR p.target_location_id=$1
+    ORDER BY p.id DESC LIMIT 100`, [loc]);
+  res.json(rows);
+});
+app.post('/api/pushes/:id/cancel', async (req, res) => {
+  await q(`UPDATE pushes SET status='cancelled', finished_at=now() WHERE id=$1 AND status IN ('queued','running')`, [req.params.id]); res.json({ ok: true });
+});
+app.post('/api/pushes/:id/resume', async (req, res) => {
+  await q(`UPDATE pushes SET status='queued', finished_at=NULL, not_before=NULL, error=NULL WHERE id=$1 AND (status IN ('cancelled','failed') OR not_before IS NOT NULL)`, [req.params.id]); res.json({ ok: true });
+});
+app.delete('/api/pushes/:id', async (req, res) => {
+  await q(`DELETE FROM pushes WHERE id=$1 AND status NOT IN ('running')`, [req.params.id]); res.json({ ok: true });
+});
 
 app.get('/api/packages/:id/contacts.csv', async (req, res) => {
   const { rows: [pkg] } = await q('SELECT * FROM packages WHERE id=$1', [req.params.id]);

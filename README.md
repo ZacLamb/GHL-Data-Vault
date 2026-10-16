@@ -126,3 +126,19 @@ phone. Data is the vault copy, so run exports / Sync new to keep it current.
    import new sub-accounts first. Save. Each month the scheduler queues one job per enabled location (first run is a
    full crawl, later ones incremental). Untick "include in monthly backup" on any location to skip it.
 4. **Backup all now** does the same on demand. Jobs tagged "auto" came from the schedule.
+
+
+## Push to another sub-account
+
+Open a location → **Push to another sub-account** in the drawer (or click **Push →** on a finished rep package).
+Pick the target, what to include (documents, custom field values, opportunities), and a tag; **Preview** shows the
+counts, the estimated API calls, and how every custom field maps in the target (existing, or created as
+`FILE_UPLOAD` / `TEXT`). **Start push** queues a job that:
+
+1. upserts each contact in the target (matched by email/phone; standard fields, tags + the push tag, custom values),
+2. uploads each document from R2 into the matching file-upload field on that contact — matched by contact, never by name,
+3. optionally creates opportunities, matching pipeline and stage by name.
+
+It is a **copy** — the source sub-account and the vault are not modified. Everything created is recorded in
+`push_items`, so re-running updates rather than duplicates. Pushes obey the target's 200k/day quota (they park and
+resume automatically), can be stopped/resumed, and show per-item issues in the drawer.
