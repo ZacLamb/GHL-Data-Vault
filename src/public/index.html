@@ -236,7 +236,9 @@ function progCell(l){
     else if(v.fetched!=null)txt=`${fmtN(v.fetched)} fetched`;
     else txt=v.status||'…';
   }
-  return `<div class="pcell"><span class="pt">${act||''} · ${txt}</span><span class="ps">${doneN}/${srcs.length} sources</span>${ratio!=null?`<div class="pbar"><span style="width:${Math.round(ratio*100)}%"></span></div>`:''}</div>`;
+  const last=Math.max(0,...srcs.map(k=>p[k].at?new Date(p[k].at).getTime():0));const silentMin=last?(Date.now()-last)/60000:null;
+  const hb=silentMin==null?'':silentMin>15?` · <span class="f">no progress for ${Math.round(silentMin)}m — stalled?</span>`:` · ${silentMin<1?'just now':Math.round(silentMin)+'m ago'}`;
+  return `<div class="pcell"><span class="pt">${act||''} · ${txt}</span><span class="ps">${doneN}/${srcs.length} sources${hb}</span>${ratio!=null?`<div class="pbar"><span style="width:${Math.round(ratio*100)}%"></span></div>`:''}</div>`;
 }
 function renderTable(){
   const rows=visible();const box=$('#rows');
@@ -277,7 +279,7 @@ async function load(){
 }
 
 // ---------- drawer ----------
-function progText(j){return j?Object.entries(j.progress||{}).map(([k,v])=>`${k}: ${v.status||'…'}${v.contactsSeen!=null?` · ${fmtN(v.contactsSeen)} contacts read`:''}${v.candidatesTotal!=null?` · ${fmtN(v.candidatesTotal)} with docs`:''}${v.fetched!=null?` · ${fmtN(v.fetched)} fetched`:''}${v.filesFound!=null?` · ${fmtN(v.filesFound)} files found`:''}${v.users!=null?` · ${v.users} users`:''}${v.mode?` · mode=${v.mode}`:''} ${v.error?'✗ '+v.error:''}${v.note?' · '+v.note:''}`).join('\n'):''}
+function progText(j){return j?Object.entries(j.progress||{}).map(([k,v])=>`${k}: ${v.status||'…'}${v.contactsSeen!=null?` · ${fmtN(v.contactsSeen)} contacts read`:''}${v.candidatesTotal!=null?` · ${fmtN(v.candidatesTotal)} with docs`:''}${v.fetched!=null?` · ${fmtN(v.fetched)} fetched`:''}${v.filesFound!=null?` · ${fmtN(v.filesFound)} files found`:''}${v.users!=null?` · ${v.users} users`:''}${v.mode?` · mode=${v.mode}`:''}${v.at?` · ${ago(v.at)}`:''} ${v.error?'✗ '+v.error:''}${v.note?' · '+v.note:''}`).join('\n'):''}
 function renderDrawer(){
   const l=state.locs.find(x=>x.location_id===state.sel);const d=$('#drawer');
   if(!l){d.innerHTML='';$('#layout').classList.remove('open');return}

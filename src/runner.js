@@ -3,7 +3,7 @@ import { SOURCES } from './sources/index.js';
 import { buildPackage } from './packager.js';
 import { buildBundle } from './bundler.js';
 
-const MAX = Number(process.env.MAX_CONCURRENT_JOBS || 3);
+const MAX = Number(process.env.MAX_CONCURRENT_JOBS || 8);
 const active = new Map(); // locationId -> Promise (one job or package per location at a time)
 
 export async function runJob(job) {
@@ -16,9 +16,11 @@ export async function runJob(job) {
     progress[name] ??= {};
     if (progress[name].status === 'done') continue;   // resumed job: skip finished sources
     progress[name].status = 'running';
+    progress[name].at = new Date().toISOString();
 
     // save() runs after every page; it also acts as the cancel checkpoint.
     const save = async () => {
+      progress[name].at = new Date().toISOString();   // heartbeat: the dashboard shows "last progress Xm ago"
       const { rows: [cur] } = await q('UPDATE jobs SET progress=$2 WHERE id=$1 RETURNING status', [job.id, progress]);
       if (cur.status === 'cancelled') throw Object.assign(new Error('cancelled'), { cancelled: true });
     };
@@ -87,7 +89,26 @@ export async function tick() {
   }
 }
 
+// Watchdog: a running job whose progress hasn't advanced in STALL_MIN minutes is logged
+// loudly. With request timeouts in ghl.js/storage.js this should not happen; if it does,
+// Stop + Resume from the dashboard restarts it from its last checkpoint.
+const STALL_MIN = Number(process.env.STALL_MINUTES || 30);
+async function watchdog() {
+  try {
+    const { rows } = await q(`
+      SELECT j.id, j.location_id, l.name,
+             (SELECT max((v->>'at')::timestamptz) FROM jsonb_each(coalesce(j.progress,'{}')::jsonb) AS p(k,v) WHERE jsonb_typeof(v)='object') AS last_at
+      FROM jobs j JOIN locations l ON l.location_id=j.location_id
+      WHERE j.status='running'`);
+    for (const r of rows) {
+      const age = r.last_at ? (Date.now() - new Date(r.last_at)) / 60000 : null;
+      if (age != null && age > STALL_MIN) console.warn(`[watchdog] job ${r.id} (${r.name}) no progress for ${Math.round(age)} min · in-memory=${active.has(r.location_id)}`);
+    }
+  } catch { /* best effort */ }
+}
+
 export function startWorker() {
   setInterval(tick, 5000);
+  setInterval(watchdog, 5 * 60 * 1000);
   tick();
 }

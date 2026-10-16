@@ -2,7 +2,7 @@ import pg from 'pg';
 
 export const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
-  max: Number(process.env.PG_POOL_MAX || 10),
+  max: Number(process.env.PG_POOL_MAX || 20),
   connectionTimeoutMillis: 10_000,
   idleTimeoutMillis: 30_000,
   keepAlive: true,

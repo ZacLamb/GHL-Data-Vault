@@ -153,16 +153,38 @@ export async function ghl(locationId, method, path, { query, body, raw = false }
   for (let attempt = 0; attempt < 6; attempt++) {
     await throttle(locationId);
     const token = await getToken(locationId);
-    const res = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Version: VERSION,
-        Accept: raw ? '*/*' : 'application/json',
-        ...(body ? { 'Content-Type': 'application/json' } : {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    let res;
+    try {
+      res = await fetch(url, {
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Version: VERSION,
+          Accept: raw ? '*/*' : 'application/json',
+          ...(body ? { 'Content-Type': 'application/json' } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        // A hung connection must not stall a crawl forever: give up on headers after 60s
+        // (raw downloads stream the body under storage.js's own timeout) and retry.
+        signal: AbortSignal.timeout(raw ? 120_000 : 60_000),
+      });
+    } catch (err) {
+      if (attempt >= 5) throw new Error(`GHL ${method} ${path}: ${err.name === 'TimeoutError' ? 'timed out' : err.message} after retries`);
+      await sleep(1000 * 2 ** attempt);
+      continue;
+    }
+    if (!raw && res.ok) {
+      // JSON bodies can hang too; cap the read and retry on a stall.
+      let text;
+      try { text = await Promise.race([res.text(), sleep(60_000).then(() => { throw new Error('body timeout'); })]); }
+      catch (err) {
+        await res.body?.cancel().catch(() => {});
+        if (attempt >= 5) throw new Error(`GHL ${method} ${path}: ${err.message} after retries`);
+        await sleep(1000 * 2 ** attempt);
+        continue;
+      }
+      try { return JSON.parse(text); } catch { throw new Error(`GHL ${method} ${path}: non-JSON response`); }
+    }
 
     if (res.status === 429 || res.status >= 500) {
       await res.body?.cancel().catch(() => {});
