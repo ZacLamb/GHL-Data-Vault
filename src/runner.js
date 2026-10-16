@@ -5,6 +5,7 @@ import { buildBundle } from './bundler.js';
 import { runPush } from './pusher.js';
 
 const MAX = Number(process.env.MAX_CONCURRENT_JOBS || 8);
+const PUSH_MAX = Math.max(1, Number(process.env.PUSH_CONCURRENCY || 2));
 const active = new Map(); // locationId -> Promise (one job or package per location at a time)
 
 export async function runJob(job) {
@@ -79,6 +80,20 @@ function launch(locationId, fn) {
 export async function tick() {
   try {
     if (active.size >= MAX) return;
+    // Pushes into another sub-account get their own lane (PUSH_CONCURRENCY, default 2) ahead of crawls,
+    // otherwise a long crawl queue would starve them. They are rate-limited on the TARGET location.
+    const pushActive = [...active.keys()].filter(k => k.startsWith('push:')).length;
+    if (pushActive < PUSH_MAX) {
+      const { rows: pushes } = await q(`SELECT * FROM pushes WHERE status IN ('queued','running') AND (not_before IS NULL OR not_before <= now()) ORDER BY status DESC, id ASC LIMIT 5`);
+      let n = pushActive;
+      for (const p of pushes) {
+        if (n >= PUSH_MAX || active.size >= MAX) break;
+        const slot = `push:${p.id}`;
+        if (active.has(slot)) continue;
+        launch(slot, () => runPush(p)); n++;
+      }
+    }
+    if (active.size >= MAX) return;
     const busy = [...active.keys()];
     const { rows: jobs } = await q(
       `SELECT * FROM jobs WHERE status IN ('queued','running') AND (not_before IS NULL OR not_before <= now()) AND NOT (location_id = ANY($1::text[]))
@@ -99,16 +114,6 @@ export async function tick() {
         try { await buildPackage(pkg); }
         catch (err) { await q(`UPDATE packages SET status='failed', error=$2 WHERE id=$1`, [pkg.id, String(err.message).slice(0, 500)]); throw err; }
       });
-    }
-    // pushes into another sub-account: rate-limited on the TARGET; keyed by push id so a crawl of the
-    // same location can run alongside (the per-location throttle is shared in-process anyway)
-    if (active.size >= MAX) return;
-    const { rows: pushes } = await q(`SELECT * FROM pushes WHERE status IN ('queued','running') AND (not_before IS NULL OR not_before <= now()) ORDER BY status DESC, id ASC LIMIT 5`);
-    for (const p of pushes) {
-      if (active.size >= MAX) return;
-      const slot = `push:${p.id}`;
-      if (active.has(slot)) continue;
-      launch(slot, () => runPush(p));
     }
     // zip bundles: independent of GHL, keyed as 'bundle:<id>' so they can run beside a crawl for the same location
     if (active.size >= MAX) return;
