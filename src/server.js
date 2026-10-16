@@ -125,13 +125,22 @@ const validSession = t => {
   const want = crypto.createHmac('sha256', SECRET + ADMIN_PW).update(`session:${exp}`).digest('base64url');
   return sig.length === want.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want));
 };
-const loginPage = (err) => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GHL Vault · Sign in</title>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Instrument+Serif:ital@1&display=swap" rel="stylesheet">
-  <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f1210;color:#e6e9e4;font:14px/1.5 "IBM Plex Mono",ui-monospace,monospace;background-image:radial-gradient(circle at 20% -10%,rgba(242,179,61,.1),transparent 45%)}
-  form{width:320px;padding:28px;border:1px solid #263029;border-radius:4px;background:#151a16}h1{font:italic 32px/1 "Instrument Serif",serif;margin:0 0 4px}h1 small{display:block;font:11px "IBM Plex Mono",monospace;color:#f2b33d;letter-spacing:.2em;text-transform:uppercase;margin-top:8px}
-  input{font:inherit;width:100%;box-sizing:border-box;padding:9px 10px;margin:12px 0 0;background:#0f1210;color:#e6e9e4;border:1px solid #263029;border-radius:2px}button{font:inherit;width:100%;margin-top:16px;padding:10px;background:#f2b33d;color:#1b1608;border:0;border-radius:2px;font-weight:600;cursor:pointer}.err{color:#f06a5a;font-size:12px;margin:10px 0 0}</style>
-  <form method="post" action="/login"><h1>GHL Vault<small>sign in</small></h1>${err ? `<p class="err">${err}</p>` : ''}
-  <input name="user" placeholder="Username" autocomplete="username" autofocus required><input name="password" type="password" placeholder="Password" autocomplete="current-password" required><button>Sign in</button></form>`;
+const loginPage = (err) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GHL Vault · Sign in</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/vault.css"><script src="/vault.js" data-nobar></script>
+  <style>body{min-height:100vh;display:grid;place-items:center}
+  .login{width:min(380px,calc(100vw - 32px));padding:34px 32px 30px;position:relative}
+  .login:before{content:"";position:absolute;inset:0 auto auto 0;width:100%;height:3px;background:linear-gradient(90deg,var(--accent),transparent);border-radius:10px 10px 0 0}
+  h1{font-size:38px;line-height:1}h1 small{display:block;font:600 10.5px/1 "Schibsted Grotesk",sans-serif;font-style:normal;color:var(--accent);letter-spacing:.2em;text-transform:uppercase;margin-top:10px}
+  label{display:block;margin-top:16px;font:600 11px/1 "Schibsted Grotesk",sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+  input{width:100%;margin-top:6px;padding:10px 12px}
+  button{width:100%;margin-top:20px;padding:11px}
+  .err{color:var(--red);font-size:13px;margin:14px 0 0;padding:9px 12px;background:var(--red-soft);border-radius:7px}
+  .foot{display:flex;justify-content:space-between;align-items:center;margin-top:18px;font-size:12px;color:var(--dim)}
+  .foot a{color:var(--dim);cursor:pointer}.foot a:hover{color:var(--ink)}</style></head>
+  <body><form class="card login" method="post" action="/login"><h1>GHL Vault<small>Sign in</small></h1>${err ? `<p class="err">${err}</p>` : ''}
+  <label>Username<input name="user" autocomplete="username" autofocus required></label><label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+  <button class="primary">Sign in</button><div class="foot"><span>Agency file vault</span><a onclick="vaultTheme.toggle()">Light / dark</a></div></form></body></html>`;
 
 app.get('/login', (req, res) => { if (!ADMIN_PW || validSession(cookies(req).vault_session)) return res.redirect('/'); res.type('html').send(loginPage()); });
 app.post('/login', express.urlencoded({ extended: false }), (req, res) => {
@@ -143,6 +152,7 @@ app.post('/login', express.urlencoded({ extended: false }), (req, res) => {
 app.get('/logout', (req, res) => { res.set('Set-Cookie', 'vault_session=; Path=/; Max-Age=0'); res.redirect('/login'); });
 
 app.use((req, res, next) => {
+  if (req.path === '/vault.css' || req.path === '/vault.js') return next();   // design system is needed by the login + owner report pages
   if (!ADMIN_PW) { if (!global._warnedNoPw) { global._warnedNoPw = true; console.warn('WARN: ADMIN_PASSWORD not set — dashboard is open to anyone with the URL'); } return next(); }
   if (validSession(cookies(req).vault_session)) return next();
   // Basic auth still accepted for scripts / curl

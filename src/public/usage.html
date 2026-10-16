@@ -4,64 +4,43 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>GHL Vault · Usage</title>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/vault.css">
+<script src="/vault.js" data-page="usage"></script>
 <style>
-  :root{--bg:#0f1210;--panel:#151a16;--line:#263029;--ink:#e6e9e4;--dim:#8a948c;--amber:#f2b33d;--green:#5fd38a;--red:#f06a5a;--blue:#6fb3ff}
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.5 "IBM Plex Mono",ui-monospace,monospace;background-image:radial-gradient(circle at 80% -10%,rgba(111,179,255,.07),transparent 45%)}
-  header{display:flex;align-items:baseline;gap:18px;padding:26px 36px 12px;border-bottom:1px solid var(--line)}
-  h1{font:italic 36px/1 "Instrument Serif",serif;margin:0}
-  h1 small{font:11px "IBM Plex Mono",monospace;color:var(--blue);letter-spacing:.2em;text-transform:uppercase;margin-left:12px;vertical-align:middle}
-  header a{color:var(--dim);margin-left:auto}
-  main{padding:20px 36px 60px;max-width:1500px}
-  h2{font:italic 22px/1 "Instrument Serif",serif;margin:30px 0 12px;color:var(--blue)}
-  .bar{display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:14px}
-  label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase}
-  input,select,button{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:2px;padding:7px 10px}
-  button{cursor:pointer}button:hover{border-color:var(--blue);color:var(--blue)}
-  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
-  .kpi{background:var(--panel);border:1px solid var(--line);padding:14px 16px;border-radius:3px}
-  .kpi .v{font-size:24px;font-weight:600;line-height:1.1}.kpi .l{color:var(--dim);font-size:11px;letter-spacing:.12em;text-transform:uppercase;margin-top:4px}
-  .card{background:var(--panel);border:1px solid var(--line);padding:14px 16px;border-radius:3px}
-  table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap}
-  th{text-align:right;color:var(--dim);font-weight:500;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:8px 6px;border-bottom:1px solid var(--blue);cursor:pointer}
-  th:first-child,td:first-child{text-align:left}td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right}
-  tr:hover td{background:rgba(255,255,255,.025)}tr.sel td{background:rgba(111,179,255,.08)}
-  .id{color:var(--dim);font-size:11px}.tableWrap{overflow-x:auto}
-  .chart{display:flex;align-items:flex-end;gap:2px;height:140px;margin-top:10px}
-  .chart .d{flex:1;display:flex;flex-direction:column-reverse;min-width:3px}
-  .chart .d div{width:100%}.chart .s{background:var(--amber)}.chart .e{background:var(--blue)}.chart .c{background:var(--green)}.chart .i{background:var(--dim);opacity:.5}
-  .legend{display:flex;gap:14px;font-size:11px;color:var(--dim);margin-top:6px}.legend i{display:inline-block;width:10px;height:10px;margin-right:4px;vertical-align:middle}
-  a{color:var(--blue);text-decoration:none}
-  .pill{display:inline-block;padding:1px 7px;border:1px solid var(--line);border-radius:2px;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
-  .pill.active{border-color:var(--green);color:var(--green)}.pill.slowing,.pill.low{border-color:var(--amber);color:var(--amber)}
-  .pill.dormant,.pill.inactive{border-color:var(--red);color:var(--red)}.pill.never,.pill.none{color:var(--dim)}
-  .sum{display:flex;gap:18px;flex-wrap:wrap;margin:0 0 12px;font-size:12px;color:var(--dim)}.sum b{color:var(--ink)}
-  .note{color:var(--dim);font-size:11px;margin-top:6px}
+  main{max-width:1600px}
+  .bar{display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:16px}
+  .bar label{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;font-weight:600}
+  .bar label input,.bar label select{letter-spacing:0;text-transform:none;font-weight:400}
+  table{white-space:nowrap}
+  th{text-align:right;cursor:pointer}th:first-child,td:first-child{text-align:left}td{text-align:right;font-variant-numeric:tabular-nums}
+  tr.sel td{background:var(--sel)}tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--blue)}
+  .sum{display:flex;gap:10px 18px;flex-wrap:wrap;margin:0 0 12px;font-size:13px;color:var(--dim);align-items:center}.sum b{color:var(--ink)}
 </style>
 </head>
 <body>
-<header><h1>Usage<small id="locLabel">agency</small></h1><a href="/">← locations</a><a href="/logout" class="id" style="margin-left:16px">log out</a></header>
 <main>
+  <div class="pagehead"><h1>Usage</h1><span class="sub" id="locLabel">agency</span></div>
   <div class="bar">
     <label>Location<select id="locSel"><option value="">— all sub-accounts (overview) —</option></select></label>
     <label>From<input id="from" type="date"></label>
     <label>To<input id="to" type="date"></label>
-    <button id="q7">7d</button><button id="q30">30d</button><button id="q90">90d</button><button id="qytd">YTD</button>
-    <button id="apply" style="border-color:var(--blue);color:var(--blue)">Apply</button>
+    <div class="seg"><button id="q7">7d</button><button id="q30">30d</button><button id="q90">90d</button><button id="qytd">YTD</button></div>
+    <button id="apply" class="btn primary">Apply</button>
     <span style="flex:1"></span>
-    <button id="csv">Export table CSV</button>
-    <button id="share" style="display:none">Owner report link</button>
+    <button id="csv" class="btn">Export table CSV</button>
+    <button id="share" class="btn blue" style="display:none">Owner report link</button>
   </div>
 
   <div id="overview"></div>
   <div id="location" style="display:none">
     <div class="kpis" id="kpis"></div>
-    <h2>Daily activity <span class="id" id="chartFor"></span></h2>
+    <h2 class="sec">Daily activity <span class="id" id="chartFor"></span></h2>
     <div class="card"><div class="chart" id="chart"></div>
       <div class="legend"><span><i class="s"></i>SMS out</span><span><i class="e"></i>Email out</span><span><i class="c"></i>Calls</span><span><i class="i"></i>Inbound</span></div></div>
-    <h2>By channel</h2><div class="card" id="channels"></div>
-    <h2>By user <span class="id">— click a row to chart that user; click headers to sort</span></h2>
+    <h2 class="sec">By channel</h2><div class="card" id="channels"></div>
+    <h2 class="sec">By user <span class="id">click a row to chart that user · click headers to sort</span></h2>
     <div class="card"><div class="tableWrap"><table id="users"><thead></thead><tbody></tbody></table></div>
       <div class="note">Logins aren't exposed by the GHL API; "active days" = days with any outbound activity. Talk time = summed call duration. Contacts created counts contacts whose createdBy is that user; assigned = currently assigned. Run the <b>usage</b> and <b>conversations</b> sources to populate.</div></div>
   </div>
@@ -103,7 +82,7 @@ async function load(){
     $('#share').style.display='none';
     const rows=await api(`/api/usage/overview?${qs()}`);
     const cnt=t=>rows.filter(r=>r.health===t).length;
-    $('#overview').innerHTML=`<h2>Agency checkup</h2><div class="sum"><span><b>${rows.length}</b> sub-accounts</span><span class="pill active">${cnt('active')} active</span><span class="pill slowing">${cnt('slowing')} slowing</span><span class="pill dormant">${cnt('dormant')} dormant</span><span class="pill never">${cnt('never')} never used</span><span><b>${N(rows.reduce((a,r)=>a+r.idle_seats,0))}</b> seats with no activity in 30d</span></div>
+    $('#overview').innerHTML=`<h2 class="sec" style="margin-top:6px">Agency checkup</h2><div class="sum"><span><b>${rows.length}</b> sub-accounts</span><span class="pill active">${cnt('active')} active</span><span class="pill slowing">${cnt('slowing')} slowing</span><span class="pill dormant">${cnt('dormant')} dormant</span><span class="pill never">${cnt('never')} never used</span><span><b>${N(rows.reduce((a,r)=>a+r.idle_seats,0))}</b> seats with no activity in 30d</span></div>
       <div class="card"><div class="tableWrap"><table id="ov"><thead></thead><tbody></tbody></table></div><div class="note">Health: active = outbound in last 30d; slowing = last 30d under half of the prior 30d; dormant = nothing in 30d; never = no activity on record. Idle seats = users with no outbound activity in 30d.</div></div>`;
     const cols=[{k:'name',l:'Location',f:r=>`<b>${r.name||'(unnamed)'}</b><div class="id">${r.location_id}</div>`},{k:'health',l:'Health',f:r=>`<span class="pill ${r.health}">${r.health}</span>`},{k:'users',l:'Users'},{k:'active_users',l:'Active'},{k:'idle_seats',l:'Idle seats'},{k:'contacts',l:'Contacts'},{k:'contacts_new',l:'New'},
       {k:'outbound',l:'Out'},{k:'inbound',l:'In'},{k:'calls',l:'Calls'},{k:'talk_seconds',l:'Talk',f:r=>mins(r.talk_seconds)},{k:'won',l:'Won'},{k:'last_activity',l:'Last activity',f:r=>D(r.last_activity)},{k:'last_export',l:'Last export',f:r=>D(r.last_export)}];

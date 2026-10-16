@@ -3,34 +3,27 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Account activity report</title>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/vault.css">
+<script src="/vault.js" data-page="report"></script>
 <style>
-  :root{--bg:#fbfaf7;--panel:#fff;--line:#e4e1d8;--ink:#1c1b18;--dim:#7a776e;--accent:#1f5eff;--green:#1e9e5a;--amber:#c98a1e;--red:#d64545}
-  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "IBM Plex Mono",ui-monospace,monospace}
-  header{padding:32px 40px 16px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
-  h1{font:italic 34px/1 "Instrument Serif",serif;margin:0}header .r{color:var(--dim);font-size:12px;margin-left:auto}
-  main{padding:20px 40px 60px;max-width:1300px}h2{font:italic 22px/1 "Instrument Serif",serif;margin:26px 0 12px}
-  .bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}button,input{font:inherit;padding:6px 10px;border:1px solid var(--line);background:#fff;border-radius:3px}button{cursor:pointer}
-  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.kpi{background:var(--panel);border:1px solid var(--line);padding:14px 16px;border-radius:4px}
-  .kpi .v{font-size:24px;font-weight:600}.kpi .l{color:var(--dim);font-size:11px;letter-spacing:.1em;text-transform:uppercase;margin-top:4px}
-  .card{background:var(--panel);border:1px solid var(--line);padding:14px 16px;border-radius:4px}table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap}
-  th{text-align:right;color:var(--dim);font-weight:500;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:8px 6px;border-bottom:2px solid var(--ink)}th:first-child,td:first-child{text-align:left}
-  td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right}.tableWrap{overflow-x:auto}
-  .pill{display:inline-block;padding:1px 7px;border:1px solid var(--line);border-radius:2px;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
-  .pill.active{color:var(--green);border-color:var(--green)}.pill.low{color:var(--amber);border-color:var(--amber)}.pill.inactive{color:var(--red);border-color:var(--red)}.pill.none{color:var(--dim)}
-  .chart{display:flex;align-items:flex-end;gap:2px;height:120px}.chart .d{flex:1;display:flex;flex-direction:column-reverse;min-width:3px}.chart .d div{width:100%}
-  .s{background:var(--amber)}.e{background:var(--accent)}.c{background:var(--green)}.i{background:#bbb}
-  .legend{display:flex;gap:14px;font-size:11px;color:var(--dim);margin-top:6px}.legend i{display:inline-block;width:10px;height:10px;margin-right:4px;vertical-align:middle}
-  .note{color:var(--dim);font-size:11px;margin-top:8px}@media print{.bar{display:none}}
+  header.rep{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;padding:30px 36px 18px;border-bottom:1px solid var(--line)}
+  header.rep .brand{font:600 10.5px/1 "Schibsted Grotesk",sans-serif;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);width:100%;margin-bottom:10px}
+  header.rep h1{font-size:34px}header.rep .r{color:var(--dim);font-size:13px;margin-left:auto}
+  main{padding:22px 36px 72px;max-width:1300px}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center}
+  table{white-space:nowrap}th{text-align:right}th:first-child,td:first-child{text-align:left}td{text-align:right}
+  @media print{.bar{display:none}}
 </style>
 </head>
 <body>
-<header><h1 id="title">Account activity</h1><span class="r" id="range"></span></header>
+<header class="rep"><span class="brand">Account activity report</span><h1 id="title">Account activity</h1><span class="r" id="range"></span></header>
 <main>
-  <div class="bar"><button data-d="7">Last 7 days</button><button data-d="30">Last 30 days</button><button data-d="90">Last 90 days</button><button onclick="print()">Print / PDF</button></div>
+  <div class="bar"><div class="seg"><button data-d="7">Last 7 days</button><button data-d="30" class="on">Last 30 days</button><button data-d="90">Last 90 days</button></div><span style="flex:1"></span><button class="btn" onclick="window.vaultTheme.toggle()">Light / dark</button><button class="btn primary" onclick="print()">Print / PDF</button></div>
   <div class="kpis" id="kpis"></div>
-  <h2>Daily activity</h2><div class="card"><div class="chart" id="chart"></div><div class="legend"><span><i class="s"></i>SMS out</span><span><i class="e"></i>Email out</span><span><i class="c"></i>Calls</span><span><i class="i"></i>Inbound</span></div></div>
-  <h2>Team</h2><div class="card"><div class="tableWrap"><table id="t"><thead></thead><tbody></tbody></table></div>
+  <h2 class="sec">Daily activity</h2><div class="card"><div class="chart" id="chart"></div><div class="legend"><span><i class="s"></i>SMS out</span><span><i class="e"></i>Email out</span><span><i class="c"></i>Calls</span><span><i class="i"></i>Inbound</span></div></div>
+  <h2 class="sec">Team</h2><div class="card"><div class="tableWrap"><table id="t"><thead></thead><tbody></tbody></table></div>
   <div class="note">Active = activity in the last 7 days on 3+ days · Low = activity within 30 days · Inactive = none in 30+ days · Talk time = total call duration.</div></div>
 </main>
 <script>
@@ -48,7 +41,7 @@ async function load(days=30){
   $('#t thead').innerHTML='<tr>'+cols.map(c=>`<th>${c[0]}</th>`).join('')+'</tr>';
   $('#t tbody').innerHTML=r.users.map(u=>'<tr>'+cols.map(c=>`<td>${c[1](u)}</td>`).join('')+'</tr>').join('');
 }
-document.querySelectorAll('button[data-d]').forEach(b=>b.onclick=()=>load(Number(b.dataset.d)));load();
+document.querySelectorAll('button[data-d]').forEach(b=>b.onclick=()=>{document.querySelectorAll('button[data-d]').forEach(x=>x.classList.toggle('on',x===b));load(Number(b.dataset.d))});load();
 </script>
 </body>
 </html>

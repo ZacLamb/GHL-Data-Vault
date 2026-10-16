@@ -3,56 +3,31 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>GHL Vault · Analytics</title>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<title>GHL Vault · Documents</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/vault.css">
+<script src="/vault.js" data-page="locations"></script>
 <style>
-  :root{--bg:#0f1210;--panel:#151a16;--line:#263029;--ink:#e6e9e4;--dim:#8a948c;--amber:#f2b33d;--green:#5fd38a;--red:#f06a5a;--blue:#6fb3ff}
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.5 "IBM Plex Mono",ui-monospace,monospace;
-       background-image:radial-gradient(circle at 80% -10%,rgba(242,179,61,.07),transparent 45%)}
-  header{display:flex;align-items:baseline;gap:18px;padding:26px 36px 12px;border-bottom:1px solid var(--line)}
-  h1{font:italic 36px/1 "Instrument Serif",serif;margin:0}
-  h1 small{font:11px "IBM Plex Mono",monospace;color:var(--amber);letter-spacing:.2em;text-transform:uppercase;margin-left:12px;vertical-align:middle}
-  header a{color:var(--dim);margin-left:auto}
-  main{padding:20px 36px 60px;max-width:1400px}
-  h2{font:italic 22px/1 "Instrument Serif",serif;margin:30px 0 12px;color:var(--amber)}
-  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
-  .kpi{background:var(--panel);border:1px solid var(--line);padding:14px 16px;border-radius:3px}
-  .kpi .v{font-size:26px;font-weight:600;line-height:1.1}.kpi .l{color:var(--dim);font-size:11px;letter-spacing:.12em;text-transform:uppercase;margin-top:4px}
-  .kpi.g .v{color:var(--green)}.kpi.r .v{color:var(--red)}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}
-  .card{background:var(--panel);border:1px solid var(--line);padding:14px 16px;border-radius:3px}
-  .card h3{margin:0 0 10px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
-  .bar{display:grid;grid-template-columns:minmax(90px,1.2fr) 3fr 60px;gap:8px;align-items:center;padding:3px 0;font-size:12px;cursor:pointer}
-  .bar:hover .k{color:var(--amber)}
-  .bar .k{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .bar .t{height:10px;background:linear-gradient(90deg,var(--amber),#c98a1e);border-radius:1px;min-width:2px}
-  .bar .n{text-align:right;color:var(--dim)}
-  .filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;align-items:end}
-  label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase}
-  input,select,button{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:2px;padding:7px 10px}
-  select[multiple]{height:84px}
-  button{cursor:pointer;background:var(--panel)}button:hover{border-color:var(--amber);color:var(--amber)}
-  button.primary{background:var(--amber);color:#1b1608;border-color:var(--amber);font-weight:600}button.primary:hover{color:#1b1608;filter:brightness(1.08)}
-  .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0}
-  .count{color:var(--amber);font-weight:600}
-  table{width:100%;border-collapse:collapse;font-size:12px}th{text-align:left;color:var(--dim);font-weight:500;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:8px;border-bottom:1px solid var(--amber)}
-  td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}tr:hover td{background:rgba(255,255,255,.025)}
-  .id{color:var(--dim);font-size:11px}.tag{display:inline-block;border:1px solid var(--line);padding:0 5px;border-radius:2px;font-size:10px;margin:1px;color:var(--dim)}
-  .pill{display:inline-block;padding:1px 6px;border:1px solid var(--green);color:var(--green);border-radius:2px;font-size:10px}
-  .pager{display:flex;gap:10px;align-items:center;justify-content:flex-end;margin-top:10px;color:var(--dim)}
-  .toast{position:fixed;right:24px;bottom:24px;background:var(--panel);border:1px solid var(--amber);padding:12px 16px;border-radius:3px;opacity:0;transform:translateY(8px);transition:.25s}.toast.show{opacity:1;transform:none}
-  .tableWrap{overflow-x:auto}
-  .checks{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--ink)}
-  .checks label{flex-direction:row;align-items:center;gap:5px;text-transform:none;letter-spacing:0;font-size:12px;color:var(--ink);cursor:pointer}
+  main{max-width:1500px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+  .filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;align-items:start}
+  .filters label{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;font-weight:600}
+  .filters label input,.filters label select{letter-spacing:0;text-transform:none;font-weight:400}
+  select[multiple]{height:88px}
+  .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:16px 0 0;padding-top:14px;border-top:1px solid var(--line)}
+  .count{color:var(--accent);font-weight:600;font-family:"JetBrains Mono",monospace}
+  td{vertical-align:top}
+  .checks label{font-size:12.5px;color:var(--ink-2)}
+  .card h3 a{font-weight:500;letter-spacing:0;text-transform:none;margin-left:4px}
 </style>
 </head>
 <body>
-<header><h1>Analytics<small id="locLabel"></small></h1><a href="/">← locations</a><a href="/logout" class="id" style="margin-left:16px">log out</a></header>
 <main>
+  <div class="pagehead"><h1>Documents</h1><span class="sub" id="locLabel"></span><span class="sp"></span><a class="btn ghost" href="/">← All locations</a></div>
   <div class="kpis" id="kpis"></div>
 
-  <h2>Breakdowns <span class="id">— click any row to add it as a filter</span></h2>
+  <h2 class="sec">Breakdowns <span class="id">click any row to add it as a filter</span></h2>
   <div class="grid">
     <div class="card"><h3>Documents per contact</h3><div id="dist"></div></div>
     <div class="card"><h3>Contacts by document field</h3><div id="fields"></div></div>
@@ -63,7 +38,7 @@
     <div class="card"><h3>Documents uploaded per month <span id="undated" class="id"></span></h3><div id="docMonths"></div></div>
   </div>
 
-  <h2>Filter the dataset</h2>
+  <h2 class="sec">Filter the dataset</h2>
   <div class="card">
     <div class="filters">
       <label>Min documents<input id="minFiles" type="number" min="0" placeholder="e.g. 1"></label>
@@ -85,23 +60,23 @@
       <label>Only not-yet-packaged<select id="unassigned"><option value="">no</option><option value="1">yes</option></select></label>
     </div>
     <div class="actions">
-      <button class="primary" id="apply">Apply filters</button>
-      <button id="clear">Clear</button>
+      <button class="btn primary" id="apply">Apply filters</button>
+      <button class="btn" id="clear">Clear</button>
       <span>Matching: <span class="count" id="matchCount">—</span> contacts</span>
       <span style="flex:1"></span>
-      <button id="csv">Export filtered CSV</button>
+      <button class="btn" id="csv">Export filtered CSV</button>
       <select id="pkgSize"></select>
-      <button id="pkg">Package random N from filter</button>
-      <button id="exportAll" class="primary" title="Every contact matching the filter, with contacts.csv + documents in one download. Does not lock contacts out of rep packages.">Export all matching (CSV + documents)</button>
+      <button class="btn" id="pkg">Package random N from filter</button>
+      <button id="exportAll" class="btn primary" title="Every contact matching the filter, with contacts.csv + documents in one download. Does not lock contacts out of rep packages.">Export all matching (CSV + documents)</button>
     </div>
   </div>
 
-  <h2>Package contents <span class="id">— what goes into contacts.csv and which documents are copied</span></h2>
+  <h2 class="sec">Package contents <span class="id">what goes into contacts.csv and which documents are copied</span></h2>
   <div class="card">
     <div class="grid">
-      <div><h3 style="margin:0 0 8px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">Contact columns <a href="#" data-all="cols" class="id">all</a> · <a href="#" data-none="cols" class="id">none</a></h3><div id="cols" class="checks"></div></div>
-      <div><h3 style="margin:0 0 8px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">Custom field columns <a href="#" data-all="ccols" class="id">all</a> · <a href="#" data-none="ccols" class="id">none</a></h3><div id="ccols" class="checks"></div></div>
-      <div><h3 style="margin:0 0 8px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">Documents to include <a href="#" data-all="docs" class="id">all</a> · <a href="#" data-none="docs" class="id">none</a></h3><div id="docs" class="checks"></div></div>
+      <div><h3>Contact columns <a href="#" data-all="cols" class="id">all</a> · <a href="#" data-none="cols" class="id">none</a></h3><div id="cols" class="checks"></div></div>
+      <div><h3>Custom field columns <a href="#" data-all="ccols" class="id">all</a> · <a href="#" data-none="ccols" class="id">none</a></h3><div id="ccols" class="checks"></div></div>
+      <div><h3>Documents to include <a href="#" data-all="docs" class="id">all</a> · <a href="#" data-none="docs" class="id">none</a></h3><div id="docs" class="checks"></div></div>
     </div>
     <div class="filters" style="margin-top:14px">
       <label>Folder naming<select id="folderPreset">
@@ -118,7 +93,7 @@
 
   <div class="card" style="margin-top:14px">
     <div class="tableWrap"><table><thead><tr><th>Contact</th><th>Company</th><th>State</th><th>Docs</th><th>Fields</th><th>Tags</th><th>Added</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
-    <div class="pager"><button id="prev">‹</button><span id="pageInfo"></span><button id="next">›</button></div>
+    <div class="pager"><button class="btn sm" id="prev">‹</button><span id="pageInfo"></span><button class="btn sm" id="next">›</button></div>
   </div>
 </main>
 <div class="toast" id="toast"></div>
@@ -130,7 +105,7 @@ const api=(p,o={})=>fetch(p,{headers:{'Content-Type':'application/json'},...o,bo
 const N=n=>Number(n||0).toLocaleString();
 const fmtB=n=>{n=Number(n||0);const u=['B','KB','MB','GB','TB'];let i=0;while(n>=1024&&i<4){n/=1024;i++}return n.toFixed(i?1:0)+' '+u[i]};
 let page=1,total=0,LIMIT=50;
-$('#locLabel').textContent=loc;
+$('#locLabel').textContent=loc;fetch('/api/locations').then(r=>r.json()).then(ls=>{const l=ls.find(x=>x.location_id===loc);if(l)$('#locLabel').textContent=(l.name||loc)+' · '+loc}).catch(()=>{});
 
 function bars(el,rows,key='contacts',onClick){
   const max=Math.max(1,...rows.map(r=>Number(r[key])));
@@ -143,7 +118,7 @@ function selectValue(sel,v){[...sel.options].forEach(o=>{if(o.value===v)o.select
 async function loadAnalytics(){
   const a=await api(`/api/locations/${loc}/analytics`);const s=a.summary;
   $('#kpis').innerHTML=[
-    ['Contacts',N(s.contacts)],['With documents',N(s.with_docs),'g'],['Without documents',N(s.without_docs),'r'],
+    ['Contacts',N(s.contacts),'a'],['With documents',N(s.with_docs),'g'],['Without documents',N(s.without_docs),'r'],
     ['Documents in R2',N(s.documents)],['Avg docs (contacts w/ docs)',s.avg_per_contact_with_docs??'—'],['Storage',fmtB(s.bytes)],
     ['Not yet packaged',N(s.unassigned)],['Failed downloads',N(s.failed_files),s.failed_files?'r':''],
   ].map(([l,v,c])=>`<div class="kpi ${c||''}"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
@@ -173,7 +148,7 @@ async function run(p=1){
   total=r.total;$('#matchCount').textContent=N(total);
   $('#rows').innerHTML=r.rows.map(c=>`<tr><td><b>${[c.first_name,c.last_name].filter(Boolean).join(' ')||'—'}</b><div class="id">${c.email||''} ${c.phone||''}</div><div class="id">${c.contact_id}</div></td>
     <td>${c.company||''}</td><td>${c.state||''}</td><td><b>${c.docs}</b></td><td class="id">${c.fields||''}</td><td>${(c.tags||[]).map(t=>`<span class="tag">${t}</span>`).join('')}</td>
-    <td class="id">${c.date_added?new Date(c.date_added).toLocaleDateString():''}</td><td>${c.assigned?'<span class="pill">packaged</span>':''}</td></tr>`).join('')||'<tr><td colspan="8" class="id">no matches</td></tr>';
+    <td class="id">${c.date_added?new Date(c.date_added).toLocaleDateString():''}</td><td>${c.assigned?'<span class="pill done">packaged</span>':''}</td></tr>`).join('')||'<tr><td colspan="8" class="id">no matches</td></tr>';
   const pages=Math.max(1,Math.ceil(total/LIMIT));$('#pageInfo').textContent=`page ${page} / ${pages}`;$('#prev').disabled=page<=1;$('#next').disabled=page>=pages;
 }
 $('#apply').onclick=()=>run(1);
