@@ -47,7 +47,7 @@
   td .name{font-weight:600}td .id{display:block;color:var(--dim);font-size:10px}
   .pill{display:inline-block;padding:1px 7px;border:1px solid var(--line);border-radius:2px;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
   .pill.done{border-color:var(--green);color:var(--green)}.pill.running{border-color:var(--amber);color:var(--amber);animation:blink 1.2s infinite}
-  .pill.failed{border-color:var(--red);color:var(--red)}.pill.queued{border-color:var(--blue);color:var(--blue)}.pill.cancelled,.pill.never{border-color:var(--dim);color:var(--dim)}
+  .pill.failed{border-color:var(--red);color:var(--red)}.pill.queued{border-color:var(--blue);color:var(--blue)}.pill.cancelled,.pill.never,.pill.inactive{border-color:var(--dim);color:var(--dim)}.pill.inactive{opacity:.6}tr.loc.off td{opacity:.55}
   @keyframes blink{50%{opacity:.45}}
   .f{color:var(--red)}.dim{color:var(--dim)}
   .more{display:flex;justify-content:center;padding:14px;color:var(--dim)}
@@ -184,17 +184,18 @@ const chosen=()=>[...document.querySelectorAll('#srcs input:checked')].map(i=>i.
 const state={locs:[],filter:localStorage.vaultFilter||'all',q:'',sort:localStorage.vaultSort||'name',dir:1,page:1,sel:localStorage.vaultSel||null};
 const PAGE=60;
 $('#sort').value=state.sort;
-const statusOf=l=>{const j=l.last_job;if(!j)return 'never';return j.status};
-const STATUS_ORDER={failed:0,running:1,queued:2,cancelled:3,done:4,never:5};
+const statusOf=l=>{if(l.inactive)return 'inactive';const j=l.last_job;if(!j)return 'never';return j.status};
+const STATUS_ORDER={failed:0,running:1,queued:2,cancelled:3,done:4,never:5,inactive:6};
 function matches(l){
   const s=statusOf(l);
   switch(state.filter){
     case 'running':if(s!=='running')return false;break;
     case 'queued':if(s!=='queued')return false;break;
-    case 'failed':if(s!=='failed'&&s!=='cancelled'&&!Number(l.files_failed))return false;break;
+    case 'failed':if(l.inactive||(s!=='failed'&&s!=='cancelled'&&!Number(l.files_failed)))return false;break;
     case 'done':if(s!=='done')return false;break;
     case 'never':if(s!=='never')return false;break;
     case 'excluded':if(l.backup_enabled!==false)return false;break;
+    case 'inactive':if(s!=='inactive')return false;break;
     case 'empty':if(s==='never'||Number(l.files_done))return false;break;
   }
   if(state.q){const q=state.q.toLowerCase();if(!(l.name||'').toLowerCase().includes(q)&&!l.location_id.toLowerCase().includes(q))return false}
@@ -215,12 +216,12 @@ function visible(){
   return rows;
 }
 function renderChips(){
-  const L=state.locs,c=k=>L.filter(l=>{const s=statusOf(l);return k==='running'?s==='running':k==='queued'?s==='queued':k==='failed'?(s==='failed'||s==='cancelled'||Number(l.files_failed)):k==='done'?s==='done':k==='never'?s==='never':k==='excluded'?l.backup_enabled===false:k==='empty'?(s!=='never'&&!Number(l.files_done)):true}).length;
-  const chips=[['all','all',''],['done','complete','green'],['running','running','amber'],['queued','queued','blue'],['failed','needs attention','red'],['never','never run',''],['empty','no files',''],['excluded','excluded from backup','']];
+  const L=state.locs,c=k=>L.filter(l=>{const s=statusOf(l);return k==='running'?s==='running':k==='queued'?s==='queued':k==='failed'?(!l.inactive&&(s==='failed'||s==='cancelled'||Number(l.files_failed))):k==='done'?s==='done':k==='never'?s==='never':k==='excluded'?l.backup_enabled===false:k==='inactive'?s==='inactive':k==='empty'?(s!=='never'&&!Number(l.files_done)):true}).length;
+  const chips=[['all','all',''],['done','complete','green'],['running','running','amber'],['queued','queued','blue'],['failed','needs attention','red'],['never','never run',''],['inactive','inactive in GHL',''],['empty','no files',''],['excluded','excluded from backup','']];
   $('#chips').innerHTML=chips.map(([k,label,cls])=>`<span class="chip ${cls} ${state.filter===k?'on':''}" data-filter="${k}"><b>${fmtN(c(k))}</b>${label}</span>`).join('');
   $('#retryAll').style.display=c('failed')?'':'none';
   // overall progress bar
-  const n=L.length||1,segs=[['done',c('done'),'var(--green)'],['running',c('running'),'var(--amber)'],['queued',c('queued'),'var(--blue)'],['failed',L.filter(l=>['failed','cancelled'].includes(statusOf(l))).length,'var(--red)'],['never',c('never'),'var(--line)']];
+  const n=L.length||1,segs=[['done',c('done'),'var(--green)'],['running',c('running'),'var(--amber)'],['queued',c('queued'),'var(--blue)'],['failed',L.filter(l=>['failed','cancelled'].includes(statusOf(l))).length,'var(--red)'],['never',c('never'),'var(--line)'],['inactive',c('inactive'),'#3a3f3b']];
   $('#overall').innerHTML=`<div class="obar">${segs.map(([k,v,col])=>v?`<span style="width:${v/n*100}%;background:${col}" title="${v} ${k}"></span>`:'').join('')}</div>
     <div class="dim" style="font-size:11px;margin-top:4px">${Math.round(c('done')/n*100)}% complete · ${segs.map(([k,v])=>`${fmtN(v)} ${k}`).join(' · ')}</div>`;
 }
@@ -259,7 +260,7 @@ function renderTable(){
     let tr=box.querySelector(`tr[data-loc="${l.location_id}"]`);
     if(!tr){tr=document.createElement('tr');tr.className='loc';tr.dataset.loc=l.location_id;tr.innerHTML=html;tr.dataset.html=html}
     else if(tr.dataset.html!==html){tr.innerHTML=html;tr.dataset.html=html}
-    tr.classList.toggle('sel',state.sel===l.location_id);
+    tr.classList.toggle('sel',state.sel===l.location_id);tr.classList.toggle('off',s==='inactive');
     // keep DOM order in sync with sort
     if(cursor?cursor.nextSibling!==tr:box.firstChild!==tr)box.insertBefore(tr,cursor?cursor.nextSibling:box.firstChild);
     cursor=tr;
@@ -289,6 +290,7 @@ function renderDrawer(){
     <h2>${esc(l.name||'(unnamed)')}</h2>
     <div class="dim" style="font-size:11px;cursor:pointer" title="click to copy" data-copy="${l.location_id}">${l.location_id} · ${l.has_pit?'private token':'agency app'}</div>
     <div class="stats"><span>contacts<b>${fmtN(l.contacts)}</b></span><span>files<b>${fmtN(l.files_done)}</b></span><span>size<b>${fmtB(l.bytes)}</b></span>${Number(l.files_failed)?`<span class="f">failed<b class="f">${fmtN(l.files_failed)}</b></span>`:''}</div>
+    ${l.inactive?`<div class="sec" style="border-color:var(--red)"><span class="gl f">Inactive in GHL</span><div class="dim" style="font-size:12px">GHL refuses to issue tokens for this sub-account (paused or deactivated), so it can't be read. It has been excluded from the monthly backup. Reactivate it in GHL and click Run export to bring it back, or delete it from the vault below.</div></div>`:''}
     <div class="sec"><span class="gl">Last run</span>
       ${j?`<span class="pill ${s}">${s}</span> <span class="dim">#${j.id}${j.trigger==='scheduled'?' · auto':j.since?' · sync':''} · ${fmtD(j.finished_at||j.created_at)}${j.sources?` · ${j.sources.join(', ')}`:''}</span><pre>${esc(progText(j))}</pre>`:'<span class="dim">never run</span>'}
     </div>
@@ -323,12 +325,12 @@ $('#chips').onclick=e=>{const c=e.target.closest('.chip');if(!c)return;state.fil
 $('#more').onclick=e=>{if(e.target.id==='moreBtn'){state.page++;renderTable()}};
 $('#rows').onclick=e=>{const tr=e.target.closest('tr.loc');if(!tr||e.target.closest('input'))return;state.sel=state.sel===tr.dataset.loc?null:tr.dataset.loc;localStorage.vaultSel=state.sel||'';renderTable();renderDrawer()};
 $('#retryAll').onclick=async()=>{
-  const targets=state.locs.filter(l=>{const s=statusOf(l);return s==='failed'||s==='cancelled'||Number(l.files_failed)});
+  const targets=state.locs.filter(l=>{const s=statusOf(l);return !l.inactive&&(s==='failed'||s==='cancelled'||Number(l.files_failed))});
   if(!confirm(`Resume/retry ${targets.length} location(s) that failed or have failed files?`))return;
   let n=0;for(const l of targets){const j=l.last_job;if(!j)continue;if(['failed','cancelled'].includes(j.status))await api(`/api/jobs/${j.id}/resume`,{method:'POST'});else if(Number(l.files_failed))await api(`/api/jobs/${j.id}/retry-failed`,{method:'POST'});n++}
   toast(`Queued ${n}`);load()};
 $('#runVisible').onclick=async()=>{
-  const targets=visible().filter(l=>!['running','queued'].includes(statusOf(l)));
+  const targets=visible().filter(l=>!l.inactive&&!['running','queued'].includes(statusOf(l)));
   if(!targets.length)return toast('Nothing to run');
   if(!confirm(`Queue a full export (${chosen().join(', ')}) for ${targets.length} location(s)?`))return;
   for(const l of targets)await api('/api/jobs',{method:'POST',body:{locationId:l.location_id,sources:chosen()}});

@@ -31,6 +31,14 @@ export async function runJob(job) {
       if (err.cancelled) { progress[name].status = 'paused'; await q('UPDATE jobs SET progress=$2 WHERE id=$1', [job.id, progress]); return; }
       progress[name].status = 'failed';
       progress[name].error = String(err.message).slice(0, 500);
+      if (err.inactive) {
+        // No point trying the other sources: the sub-account can't be read at all.
+        for (const other of job.sources) if (progress[other]?.status !== 'done') progress[other] = { ...(progress[other] || {}), status: 'failed', error: 'skipped — sub-account inactive' };
+        progress[name].error = err.message;
+        await q(`UPDATE jobs SET status='failed', finished_at=now(), progress=$2, error=$3 WHERE id=$1`, [job.id, progress, 'inactive']);
+        console.warn(`[job ${job.id}] location ${job.location_id} inactive; excluded from backups`);
+        return;
+      }
       console.error(`[job ${job.id}] ${name} failed:`, err);
     }
     await save();

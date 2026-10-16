@@ -163,7 +163,7 @@ app.get('/api/locations', async (_req, res) => {
                         coalesce(sum(size_bytes) FILTER (WHERE status='done'),0) AS bytes FROM files GROUP BY location_id),
            j AS (SELECT DISTINCT ON (location_id) location_id, id, status, sources, progress, since, trigger, created_at, finished_at FROM jobs ORDER BY location_id, id DESC),
            c AS (SELECT location_id, count(*) AS contacts FROM contacts GROUP BY location_id)
-      SELECT l.location_id, l.name, (l.pit_token IS NOT NULL) AS has_pit, l.backup_enabled, l.created_at,
+      SELECT l.location_id, l.name, (l.pit_token IS NOT NULL) AS has_pit, l.backup_enabled, l.inactive, l.created_at,
              coalesce(c.contacts,0) AS contacts,
              coalesce(f.files_done,0) AS files_done, coalesce(f.files_failed,0) AS files_failed, coalesce(f.bytes,0) AS bytes,
              CASE WHEN j.id IS NULL THEN NULL ELSE json_build_object('id',j.id,'status',j.status,'sources',j.sources,'progress',j.progress,'since',j.since,'trigger',j.trigger,'created_at',j.created_at,'finished_at',j.finished_at) END AS last_job

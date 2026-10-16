@@ -100,13 +100,19 @@ export async function getToken(locationId) {
   });
   if (!res.ok) {
     const body = (await res.text()).slice(0, 300);
+    if (/not active/i.test(body)) {
+      // Paused / deactivated sub-account: GHL will not issue tokens for it. Flag it, drop it from
+      // the monthly backup, and fail fast with a clear message (runner skips the remaining sources).
+      await q(`UPDATE locations SET backup_enabled=false, inactive=true WHERE location_id=$1`, [locationId]);
+      throw Object.assign(new Error(`Sub-account is inactive in GHL (paused or deactivated) — excluded from backups. Reactivate it in GHL and re-run, or delete it from the vault.`), { inactive: true });
+    }
     throw new Error(`Could not mint a location token for ${locationId} (${res.status}): ${body}. ` +
       `The agency token needs the "oauth.write" scope plus the sub-account scopes it should grant (contacts, conversations, opportunities, forms, surveys, medias, users, calendars). ` +
       `Alternatively paste a per-location Private Integration token for this location.`);
   }
   const data = await res.json();
   const expires = new Date(Date.now() + (data.expires_in || 86_400) * 1000 - 60 * 60_000);
-  await q('UPDATE locations SET oauth_token=$2, oauth_expires=$3 WHERE location_id=$1', [locationId, data.access_token, expires]);
+  await q('UPDATE locations SET oauth_token=$2, oauth_expires=$3, inactive=false WHERE location_id=$1', [locationId, data.access_token, expires]);
   return data.access_token;
 }
 

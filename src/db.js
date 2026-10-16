@@ -162,6 +162,12 @@ export async function migrate() {
     );
     CREATE INDEX IF NOT EXISTS events_loc_time ON events(location_id, occurred_at);
     CREATE INDEX IF NOT EXISTS events_loc_user ON events(location_id, user_id, event_type);
+    ALTER TABLE locations ADD COLUMN IF NOT EXISTS inactive BOOLEAN NOT NULL DEFAULT false;   -- GHL refuses tokens: paused/deactivated
+    -- one-time: flag locations whose latest job already failed with GHL's "Location is not active"
+    UPDATE locations l SET inactive=true, backup_enabled=false
+      WHERE NOT l.inactive AND EXISTS (
+        SELECT 1 FROM (SELECT DISTINCT ON (location_id) location_id, status, progress::text AS p FROM jobs ORDER BY location_id, id DESC) j
+        WHERE j.location_id=l.location_id AND j.status='failed' AND j.p ILIKE '%Location is not active%');
     ALTER TABLE files ADD COLUMN IF NOT EXISTS cdn_url TEXT;
     ALTER TABLE files ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMPTZ;   -- Last-Modified from GHL storage ≈ upload time
     CREATE INDEX IF NOT EXISTS files_loc_uploaded ON files(location_id, uploaded_at);
