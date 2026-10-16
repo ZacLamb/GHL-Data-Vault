@@ -14,7 +14,7 @@ export async function documents(ctx) {
   while (true) {
     let data;
     try {
-      data = await ghl(locationId, 'GET', '/proposals/document', { query: { locationId, limit: 50, skip } });
+      data = await ghl(locationId, 'GET', '/proposals/document', { query: { locationId, limit: 20, skip } });
     } catch (err) {
       progress.note = `documents endpoint unavailable: ${err.message.slice(0, 200)}`;
       await save(); return;

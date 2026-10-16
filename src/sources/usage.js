@@ -2,6 +2,9 @@
 import { ghl } from '../ghl.js';
 import { q } from '../db.js';
 
+// GHL's opportunities/search wants mm-dd-yyyy
+const mdy = iso => { const d = new Date(iso); return `${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}-${d.getUTCFullYear()}`; };
+
 export async function usage(ctx) {
   const { locationId, progress, save, since } = ctx;
 
@@ -17,7 +20,7 @@ export async function usage(ctx) {
   progress.opportunities ??= 0;
   let { startAfterId, startAfter } = progress;
   while (true) {
-    const data = await ghl(locationId, 'GET', '/opportunities/search', { query: { location_id: locationId, limit: 100, startAfterId, startAfter, ...(since ? { date: since.slice(0, 10) } : {}) } });
+    const data = await ghl(locationId, 'GET', '/opportunities/search', { query: { location_id: locationId, limit: 100, startAfterId, startAfter, ...(since ? { date: mdy(since) } : {}) } });
     const opps = data.opportunities || [];
     if (!opps.length) break;
     for (const o of opps) await q(`INSERT INTO opportunities (location_id, opportunity_id, contact_id, assigned_to, pipeline_id, stage_id, status, monetary_value, created_at, updated_at, status_changed_at)

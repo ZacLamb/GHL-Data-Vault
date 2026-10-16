@@ -47,7 +47,7 @@
   td .name{font-weight:600}td .id{display:block;color:var(--dim);font-size:10px}
   .pill{display:inline-block;padding:1px 7px;border:1px solid var(--line);border-radius:2px;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
   .pill.done{border-color:var(--green);color:var(--green)}.pill.running{border-color:var(--amber);color:var(--amber);animation:blink 1.2s infinite}
-  .pill.failed{border-color:var(--red);color:var(--red)}.pill.queued{border-color:var(--blue);color:var(--blue)}.pill.cancelled,.pill.never,.pill.inactive{border-color:var(--dim);color:var(--dim)}.pill.inactive{opacity:.6}tr.loc.off td{opacity:.55}
+  .pill.failed{border-color:var(--red);color:var(--red)}.pill.queued{border-color:var(--blue);color:var(--blue)}.pill.parked{border-color:var(--blue);color:var(--blue);opacity:.75}.pill.cancelled,.pill.never,.pill.inactive{border-color:var(--dim);color:var(--dim)}.pill.inactive{opacity:.6}tr.loc.off td{opacity:.55}
   @keyframes blink{50%{opacity:.45}}
   .f{color:var(--red)}.dim{color:var(--dim)}
   .more{display:flex;justify-content:center;padding:14px;color:var(--dim)}
@@ -184,13 +184,13 @@ const chosen=()=>[...document.querySelectorAll('#srcs input:checked')].map(i=>i.
 const state={locs:[],filter:localStorage.vaultFilter||'all',q:'',sort:localStorage.vaultSort||'name',dir:1,page:1,sel:localStorage.vaultSel||null};
 const PAGE=60;
 $('#sort').value=state.sort;
-const statusOf=l=>{if(l.inactive)return 'inactive';const j=l.last_job;if(!j)return 'never';return j.status};
-const STATUS_ORDER={failed:0,running:1,queued:2,cancelled:3,done:4,never:5,inactive:6};
+const statusOf=l=>{if(l.inactive)return 'inactive';const j=l.last_job;if(!j)return 'never';if(j.status==='queued'&&j.not_before&&new Date(j.not_before)>Date.now())return 'parked';return j.status};
+const STATUS_ORDER={failed:0,running:1,parked:2,queued:3,cancelled:4,done:5,never:6,inactive:7};
 function matches(l){
   const s=statusOf(l);
   switch(state.filter){
     case 'running':if(s!=='running')return false;break;
-    case 'queued':if(s!=='queued')return false;break;
+    case 'queued':if(s!=='queued'&&s!=='parked')return false;break;
     case 'failed':if(l.inactive||(s!=='failed'&&s!=='cancelled'&&!Number(l.files_failed)))return false;break;
     case 'done':if(s!=='done')return false;break;
     case 'never':if(s!=='never')return false;break;
@@ -216,7 +216,7 @@ function visible(){
   return rows;
 }
 function renderChips(){
-  const L=state.locs,c=k=>L.filter(l=>{const s=statusOf(l);return k==='running'?s==='running':k==='queued'?s==='queued':k==='failed'?(!l.inactive&&(s==='failed'||s==='cancelled'||Number(l.files_failed))):k==='done'?s==='done':k==='never'?s==='never':k==='excluded'?l.backup_enabled===false:k==='inactive'?s==='inactive':k==='empty'?(s!=='never'&&!Number(l.files_done)):true}).length;
+  const L=state.locs,c=k=>L.filter(l=>{const s=statusOf(l);return k==='running'?s==='running':k==='queued'?(s==='queued'||s==='parked'):k==='failed'?(!l.inactive&&(s==='failed'||s==='cancelled'||Number(l.files_failed))):k==='done'?s==='done':k==='never'?s==='never':k==='excluded'?l.backup_enabled===false:k==='inactive'?s==='inactive':k==='empty'?(s!=='never'&&!Number(l.files_done)):true}).length;
   const chips=[['all','all',''],['done','complete','green'],['running','running','amber'],['queued','queued','blue'],['failed','needs attention','red'],['never','never run',''],['inactive','inactive in GHL',''],['empty','no files',''],['excluded','excluded from backup','']];
   $('#chips').innerHTML=chips.map(([k,label,cls])=>`<span class="chip ${cls} ${state.filter===k?'on':''}" data-filter="${k}"><b>${fmtN(c(k))}</b>${label}</span>`).join('');
   $('#retryAll').style.display=c('failed')?'':'none';
@@ -250,8 +250,8 @@ function renderTable(){
     seen.add(l.location_id);
     const j=l.last_job,s=statusOf(l);
     const html=`<td><span class="name">${esc(l.name||'(unnamed)')}</span><span class="id">${l.location_id} · ${l.has_pit?'PIT':'agency'}</span></td>
-      <td><span class="pill ${s}">${s}</span></td>
-      <td class="dim" title="${j?fmtD(j.finished_at||j.created_at):''}">${s==='running'?progCell(l):j?`${ago(j.finished_at||j.created_at)} <span style="opacity:.6">#${j.id}${j.trigger==='scheduled'?' auto':j.since?' sync':''}</span>`:'—'}</td>
+      <td><span class="pill ${s}">${s==='parked'?'quota wait':s}</span></td>
+      <td class="dim" title="${j?fmtD(j.finished_at||j.created_at):''}">${s==='running'?progCell(l):s==='parked'?`<div class="pcell"><span class="pt">daily API quota reached</span><span class="ps">resumes ${fmtD(j.not_before)}</span></div>`:j?`${ago(j.finished_at||j.created_at)} <span style="opacity:.6">#${j.id}${j.trigger==='scheduled'?' auto':j.since?' sync':''}</span>`:'—'}</td>
       <td class="r">${fmtN(l.contacts)}</td>
       <td class="r">${fmtN(l.files_done)}</td>
       <td class="r dim">${fmtB(l.bytes)}</td>
@@ -285,18 +285,20 @@ function renderDrawer(){
   const l=state.locs.find(x=>x.location_id===state.sel);const d=$('#drawer');
   if(!l){d.innerHTML='';$('#layout').classList.remove('open');return}
   $('#layout').classList.add('open');
-  const j=l.last_job,running=j&&['running','queued'].includes(j.status),s=statusOf(l);
+  const s=statusOf(l),j=l.last_job,running=j&&['running','queued'].includes(j.status)&&s!=='parked';
   const html=`<span class="close" id="closeDrawer" title="close">✕</span>
     <h2>${esc(l.name||'(unnamed)')}</h2>
     <div class="dim" style="font-size:11px;cursor:pointer" title="click to copy" data-copy="${l.location_id}">${l.location_id} · ${l.has_pit?'private token':'agency app'}</div>
     <div class="stats"><span>contacts<b>${fmtN(l.contacts)}</b></span><span>files<b>${fmtN(l.files_done)}</b></span><span>size<b>${fmtB(l.bytes)}</b></span>${Number(l.files_failed)?`<span class="f">failed<b class="f">${fmtN(l.files_failed)}</b></span>`:''}</div>
     ${l.inactive?`<div class="sec" style="border-color:var(--red)"><span class="gl f">Inactive in GHL</span><div class="dim" style="font-size:12px">GHL refuses to issue tokens for this sub-account (paused or deactivated), so it can't be read. It has been excluded from the monthly backup. Reactivate it in GHL and click Run export to bring it back, or delete it from the vault below.</div></div>`:''}
     <div class="sec"><span class="gl">Last run</span>
-      ${j?`<span class="pill ${s}">${s}</span> <span class="dim">#${j.id}${j.trigger==='scheduled'?' · auto':j.since?' · sync':''} · ${fmtD(j.finished_at||j.created_at)}${j.sources?` · ${j.sources.join(', ')}`:''}</span><pre>${esc(progText(j))}</pre>`:'<span class="dim">never run</span>'}
+      ${s==='parked'?`<div class="dim" style="font-size:12px;margin-bottom:6px">This sub-account used its 200,000 GHL API calls for the day (large accounts need one call per contact on a full crawl). The job keeps its place and continues automatically after ${fmtD(j.not_before)}.</div>`:''}
+      ${j?`<span class="pill ${s}">${s==='parked'?'quota wait':s}</span> <span class="dim">#${j.id}${j.trigger==='scheduled'?' · auto':j.since?' · sync':''} · ${fmtD(j.finished_at||j.created_at)}${j.sources?` · ${j.sources.join(', ')}`:''}</span><pre>${esc(progText(j))}</pre>`:'<span class="dim">never run</span>'}
     </div>
     <div class="sec"><span class="gl">Crawl GHL</span><div class="gb">
-      ${running?`<button class="btn" data-cancel="${j.id}">Stop</button>`:`<button class="btn primary" data-run="${l.location_id}" title="Full crawl of the selected sources">Run export</button>${j&&j.status==='done'?`<button class="btn" data-sync="${l.location_id}" title="Only contacts updated since the last completed export">Sync new</button>`:''}`}
+      ${running?`<button class="btn" data-cancel="${j.id}">Stop</button>`:s==='parked'?'':`<button class="btn primary" data-run="${l.location_id}" title="Full crawl of the selected sources">Run export</button>${j&&j.status==='done'?`<button class="btn" data-sync="${l.location_id}" title="Only contacts updated since the last completed export">Sync new</button>`:''}`}
       ${j&&['cancelled','failed'].includes(j.status)?`<button class="btn" data-resume="${j.id}">Resume</button>`:''}
+      ${s==='parked'?`<button class="btn" data-resume="${j.id}" title="GHL allows 200k API calls per sub-account per day; this job hit the cap and is waiting for the reset">Try now</button>`:''}
       ${j&&Number(l.files_failed)?`<button class="btn" data-retry="${j.id}">Retry failed files</button>`:''}
     </div></div>
     <div class="sec"><span class="gl">Analyze</span><div class="gb"><a class="btn amber" href="/analytics.html?loc=${l.location_id}">Documents</a><a class="btn blue" href="/usage.html?loc=${l.location_id}">Usage</a></div></div>

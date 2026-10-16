@@ -192,10 +192,22 @@ export async function ghl(locationId, method, path, { query, body, raw = false }
       try { return JSON.parse(text); } catch { throw new Error(`GHL ${method} ${path}: non-JSON response`); }
     }
 
-    if (res.status === 429 || res.status >= 500) {
-      await res.body?.cancel().catch(() => {});
+    if (res.status === 429) {
+      // Two kinds of 429: the 10-second burst limit (back off and retry) and the 200k/day
+      // per-sub-account quota (nothing to do but wait for the reset). GHL reports the daily
+      // counter in headers; a persistent 429 with no burst-remaining info is treated as daily too.
+      const daily = Number(res.headers.get('x-ratelimit-daily-remaining'));
+      const text = await res.text().catch(() => '');
+      if ((Number.isFinite(daily) && daily <= 0) || /daily/i.test(text) || attempt >= 4) {
+        throw Object.assign(new Error(`GHL daily API quota reached for this sub-account (200k calls/day); paused until it resets`), { dailyLimit: true });
+      }
       const retryAfter = Number(res.headers.get('retry-after')) || 0;
       await sleep(Math.max(retryAfter * 1000, 1000 * 2 ** attempt));
+      continue;
+    }
+    if (res.status >= 500) {
+      await res.body?.cancel().catch(() => {});
+      await sleep(1000 * 2 ** attempt);
       continue;
     }
     if (res.status === 401 && attempt === 0) {
