@@ -79,36 +79,37 @@ function launch(locationId, fn) {
 // so different locations run in parallel; within a location, exports and packages stay sequential.
 export async function tick() {
   try {
-    if (active.size >= MAX) return;
-    // Pushes into another sub-account get their own lane (PUSH_CONCURRENCY, default 2) ahead of crawls,
-    // otherwise a long crawl queue would starve them. They are rate-limited on the TARGET location.
+    // Pushes into another sub-account run in their own lane ON TOP of the crawl cap (PUSH_CONCURRENCY,
+    // default 2), so a long crawl queue can never starve them. They are rate-limited on the TARGET location.
     const pushActive = [...active.keys()].filter(k => k.startsWith('push:')).length;
     if (pushActive < PUSH_MAX) {
       const { rows: pushes } = await q(`SELECT * FROM pushes WHERE status IN ('queued','running') AND (not_before IS NULL OR not_before <= now()) ORDER BY status DESC, id ASC LIMIT 5`);
       let n = pushActive;
       for (const p of pushes) {
-        if (n >= PUSH_MAX || active.size >= MAX) break;
+        if (n >= PUSH_MAX) break;
         const slot = `push:${p.id}`;
         if (active.has(slot)) continue;
         launch(slot, () => runPush(p)); n++;
       }
     }
-    if (active.size >= MAX) return;
+    // Crawls / packages / bundles share MAX slots (pushes don't count against it).
+    const crawlActive = () => [...active.keys()].filter(k => !k.startsWith('push:')).length;
+    if (crawlActive() >= MAX) return;
     const busy = [...active.keys()];
     const { rows: jobs } = await q(
       `SELECT * FROM jobs WHERE status IN ('queued','running') AND (not_before IS NULL OR not_before <= now()) AND NOT (location_id = ANY($1::text[]))
        ORDER BY status DESC, id ASC`, [busy]);
     for (const job of jobs) {
-      if (active.size >= MAX) return;
+      if (crawlActive() >= MAX) return;
       if (active.has(job.location_id)) continue;
       launch(job.location_id, () => runJob(job));
     }
-    if (active.size >= MAX) return;
+    if (crawlActive() >= MAX) return;
     const { rows: pkgs } = await q(
       `SELECT * FROM packages WHERE status IN ('queued','running') AND NOT (location_id = ANY($1::text[]))
        ORDER BY status DESC, id ASC`, [[...active.keys()]]);
     for (const pkg of pkgs) {
-      if (active.size >= MAX) return;
+      if (crawlActive() >= MAX) return;
       if (active.has(pkg.location_id)) continue;
       launch(pkg.location_id, async () => {
         try { await buildPackage(pkg); }
@@ -116,10 +117,10 @@ export async function tick() {
       });
     }
     // zip bundles: independent of GHL, keyed as 'bundle:<id>' so they can run beside a crawl for the same location
-    if (active.size >= MAX) return;
+    if (crawlActive() >= MAX) return;
     const { rows: bundles } = await q(`SELECT * FROM bundles WHERE status='queued' ORDER BY id ASC LIMIT 5`);
     for (const b of bundles) {
-      if (active.size >= MAX) return;
+      if (crawlActive() >= MAX) return;
       const slot = `bundle:${b.id}`;
       if (active.has(slot)) continue;
       launch(slot, () => buildBundle(b));
