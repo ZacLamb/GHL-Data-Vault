@@ -264,3 +264,15 @@ export function parseFileFieldValue(value) {
   }
   return out;
 }
+
+// Scopes carried by the token we would use for a location (GHL tokens are JWTs with oauthMeta.scopes).
+// Forces a fresh mint so a just-reconnected agency app is reflected immediately.
+export async function tokenScopes(locationId, { fresh = true } = {}) {
+  if (fresh) await q('UPDATE locations SET oauth_expires=NULL WHERE location_id=$1', [locationId]);
+  const token = await getToken(locationId);
+  try {
+    const payload = JSON.parse(Buffer.from(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+    return { scopes: payload.oauthMeta?.scopes || payload.scopes || [], authClass: payload.authClass, source: payload.source, kind: 'oauth' };
+  } catch { return { scopes: null, kind: 'pit' }; }   // PITs are opaque; scopes aren't readable
+}
+export const PUSH_WRITE_SCOPES = ['contacts.write', 'locations/customFields.write', 'forms.write'];

@@ -1,5 +1,6 @@
 import express from 'express';
 import { createPush, previewMapping } from './pusher.js';
+import { tokenScopes, PUSH_WRITE_SCOPES } from './ghl.js';
 import archiver from 'archiver';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -249,7 +250,8 @@ app.post('/api/backup/test', async (req, res) => {
     if (!loc) return res.json({ ok: true, note: 'every location has its own PIT; agency token not needed' });
     await q('UPDATE locations SET oauth_expires=NULL WHERE location_id=$1', [loc.location_id]);   // force a fresh mint
     const d = await ghl(loc.location_id, 'POST', '/contacts/search', { body: { locationId: loc.location_id, pageLimit: 1 } });
-    res.json({ ok: true, location: loc.name || loc.location_id, contacts: d.total ?? (d.contacts || []).length });
+    const t = await tokenScopes(loc.location_id, { fresh: false }).catch(() => null);
+    res.json({ ok: true, location: loc.name || loc.location_id, contacts: d.total ?? (d.contacts || []).length, scopes: t?.scopes || null, writeMissing: t?.scopes ? PUSH_WRITE_SCOPES.filter(s => !t.scopes.includes(s)) : null });
   } catch (err) { res.status(400).json({ ok: false, error: err.message }); }
 });
 app.post('/api/backup/schedule', async (req, res) => res.json(await setSchedule(req.body || {})));
@@ -441,7 +443,20 @@ app.delete('/api/packages/:id', async (req, res) => { await dissolvePackage(req.
 
 // --- push to another sub-account -------------------------------------------------------
 app.post('/api/pushes/preview', async (req, res) => {
-  try { res.json(await previewMapping(req.body || {})); } catch (err) { res.status(400).json({ error: err.message }); }
+  try {
+    const m = await previewMapping(req.body || {});
+    // Does the token we'd use on the target actually carry write scopes?
+    let perms = null;
+    try {
+      const t = await tokenScopes(req.body.targetLocationId);
+      const need = [...PUSH_WRITE_SCOPES, ...(req.body.include?.opportunities ? ['opportunities.write'] : [])];
+      perms = t.scopes ? { kind: t.kind, has: t.scopes, missing: need.filter(s => !t.scopes.includes(s)) } : { kind: t.kind, has: null, missing: [] };
+    } catch (err) { perms = { error: err.message }; }
+    res.json({ ...m, perms });
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+app.get('/api/locations/:id/scopes', async (req, res) => {
+  try { res.json(await tokenScopes(req.params.id)); } catch (err) { res.status(400).json({ error: err.message }); }
 });
 app.post('/api/pushes', async (req, res) => {
   try { res.json(await createPush(req.body || {})); } catch (err) { res.status(400).json({ error: err.message }); }
