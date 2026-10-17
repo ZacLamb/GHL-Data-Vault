@@ -146,6 +146,9 @@ export async function runPush(push) {
           if (inc.opportunities && stageMap) await pushOpportunities(c, tid, { source, target, stageMap, progress, fail });
         } catch (err) {
           if (err.dailyLimit || err.cancelled) throw err;
+          if (/401.*not authorized for this scope/i.test(err.message)) {
+            throw new Error('The agency app token has no WRITE permission on the target. Add contacts.write, locations/customFields.write, opportunities.write and forms.write to the marketplace app\'s scopes, then click "Reconnect agency app" on the dashboard and Resume this push.');
+          }
           fail(`contact ${c.contact_id}`, err);
         }
         progress.contactsDone++;

@@ -31,6 +31,8 @@ export const OAUTH_SCOPES = [
   'oauth.write', 'oauth.readonly', 'locations.readonly', 'locations/customFields.readonly',
   'contacts.readonly', 'conversations.readonly', 'conversations/message.readonly', 'opportunities.readonly',
   'forms.readonly', 'surveys.readonly', 'medias.readonly', 'users.readonly', 'calendars/events.readonly', 'calendars.readonly',
+  // write scopes — only used by "Push to another sub-account" (create contacts, custom fields, opportunities, upload files)
+  'contacts.write', 'locations/customFields.write', 'opportunities.write', 'forms.write',
 ];
 export function oauthAuthorizeUrl(redirectUri) {
   const u = new URL('https://marketplace.gohighlevel.com/v2/oauth/chooselocation');

@@ -130,6 +130,8 @@ phone. Data is the vault copy, so run exports / Sync new to keep it current.
 
 ## Push to another sub-account
 
+**Requires write scopes on the marketplace app:** `contacts.write`, `locations/customFields.write`, `opportunities.write`, `forms.write`. Add them under the app's Scopes, then click **Reconnect agency app** so the new permissions are granted.
+
 Open a location → **Push to another sub-account** in the drawer (or click **Push →** on a finished rep package).
 Pick the target, what to include (documents, custom field values, opportunities), and a tag; **Preview** shows the
 counts, the estimated API calls, and how every custom field maps in the target (existing, or created as
