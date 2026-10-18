@@ -1,4 +1,4 @@
-# Data Vault — file exporter for GoHighLevel sub-accounts
+# Backup & Insights — file exporter for GoHighLevel sub-accounts
 
 GHL's CSV export covers every data set except file uploads. This tool crawls every place a file can live
 in a sub-account, streams each file into Cloudflare R2, and writes a manifest you can join back to your

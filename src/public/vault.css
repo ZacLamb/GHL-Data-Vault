@@ -1,4 +1,4 @@
-/* Data Vault — tool-specific pieces on top of the shared RGS design (/ui/rgs-ui.css). Colours come from its variables only. */
+/* Backup & Insights — tool-specific pieces on top of the shared RGS design (/ui/rgs-ui.css). Colours come from its variables only. */
 .wrap { max-width: 1240px; }
 .seg a { padding: 4px 16px; border-radius: 7px; font-weight: 500; color: var(--text); display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; }
 .seg a:hover { text-decoration: none; }

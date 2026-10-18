@@ -1,4 +1,4 @@
-// Data Vault — small helpers shared by the vault pages (load after /ui/rgs-shell.js).
+// Backup & Insights — small helpers shared by the vault pages (load after /ui/rgs-shell.js).
 // The RGS shell provides the frame, theme, toasts and icons; this adds API, formatting, sheets and the page switcher.
 (function () {
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
