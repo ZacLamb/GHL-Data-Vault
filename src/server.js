@@ -32,7 +32,9 @@ app.set('trust proxy', 1);
 app.use((req, res, next) => {
   const want = String(process.env.CANONICAL_HOST || '').trim().toLowerCase();
   const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().toLowerCase().replace(/:\d+$/, '');
-  if (!want || !host || host === want || host === 'localhost' || host.endsWith('.railway.app') || host.endsWith('.railway.internal')) return next();
+  // CANONICAL_KEEP: comma-separated hosts that keep serving as they are (e.g. a separate brand domain).
+  const keep = String(process.env.CANONICAL_KEEP || '').toLowerCase().split(',').map((x) => x.trim()).filter(Boolean);
+  if (!want || !host || host === want || keep.includes(host) || host === 'localhost' || host.endsWith('.railway.app') || host.endsWith('.railway.internal')) return next();
   if (!['GET', 'HEAD'].includes(req.method) || /^\/(api|internal)(\/|$)/.test(req.path)) return next();
   res.redirect(301, `https://${want}${req.originalUrl}`);
 });
