@@ -1,5 +1,5 @@
 // Contact + opportunity custom fields of type FILE_UPLOAD.
-import { ghl, parseFileFieldValue } from '../ghl.js';
+import { ghl, parseFileFieldValue, repairCursor, sleep } from '../ghl.js';
 import { ingest, limiter } from '../storage.js';
 import { q } from '../db.js';
 
@@ -18,6 +18,51 @@ async function upsertContact(locationId, c, fileFieldIds, nameById, fileCount) {
      c.tags || [], c.dateAdded ? new Date(c.dateAdded) : null, custom, fileCount ?? 0,
      c.assignedTo || null, c.createdBy?.userId || (c.createdBy?.source === 'USER' ? c.createdBy?.sourceId : null) || null, c.source || null,
      c.dateUpdated ? new Date(c.dateUpdated) : null]);
+}
+
+// ---- contact paging ----------------------------------------------------------------------------
+// POST /contacts/search caps page-number paging at ~10,000 results, so we only ever walk with the
+// `searchAfter` cursor: every contact in a response carries its own `searchAfter` (its sort values,
+// e.g. [dateAdded ms, id]) and sending the last one back returns the next page. The sort is pinned
+// to dateAdded ascending so the order is stable for the whole walk and contacts created mid-crawl
+// land at the end instead of shifting earlier pages. The cursor is checkpointed after every page,
+// together with the sort it belongs to, so a stopped/failed/quota-parked job resumes exactly there.
+const PAGE = 100;
+const SORT = [{ field: 'dateAdded', direction: 'asc' }];
+const is400 = err => / -> 400:/.test(err?.message || '');
+
+// The search backend sometimes answers a valid request with a generic 400; give it two more tries.
+async function search(locationId, body) {
+  for (let attempt = 0; ; attempt++) {
+    try { return await ghl(locationId, 'POST', '/contacts/search', { body }); }
+    catch (err) { if (!is400(err) || attempt >= 2) throw err; await sleep(3000 * 3 ** attempt); }
+  }
+}
+
+async function walkContacts(locationId, { filters, progress, key, save }, onPage) {
+  const sortKey = `${key}Sort`;
+  let cursor = repairCursor(progress[key]) || undefined;
+  if (cursor && !progress[sortKey]) progress[sortKey] = 'default';   // checkpoint from before the pinned sort: keep GHL's default order
+  while (true) {
+    const pinned = progress[sortKey] !== 'default';
+    const body = { locationId, pageLimit: PAGE, ...(filters.length ? { filters } : {}), ...(pinned ? { sort: SORT } : {}), ...(cursor ? { searchAfter: cursor } : {}) };
+    let data;
+    try { data = await search(locationId, body); }
+    catch (err) {
+      // Sort rejected on the very first page: fall back to GHL's default order (also cursor-paged).
+      if (pinned && !cursor && is400(err)) { progress[sortKey] = 'default'; continue; }
+      throw err;
+    }
+    progress[sortKey] ??= 'dateAdded';
+    const page = data.contacts || [];
+    if (!page.length) break;
+    await onPage(page);
+    cursor = page[page.length - 1].searchAfter;
+    progress[key] = cursor;
+    await save();
+    if (!Array.isArray(cursor) || !cursor.length || page.length < PAGE) break;
+  }
+  delete progress[key]; delete progress[sortKey];
 }
 
 async function fileFields(locationId, model) {
@@ -40,19 +85,11 @@ export async function contactFields(ctx) {
 
   // ---- Pass 1: every contact record, straight from search (fast; file fields are omitted by search) ----
   if (!progress.pass1Done) {
-    let searchAfter = progress.searchAfter || undefined;
-    while (true) {
-      const data = await ghl(locationId, 'POST', '/contacts/search', { body: { locationId, pageLimit: 100, ...(sinceFilter.length ? { filters: sinceFilter } : {}), ...(searchAfter ? { searchAfter } : {}) } });
-      const contacts = data.contacts || [];
-      if (!contacts.length) break;
+    await walkContacts(locationId, { filters: sinceFilter, progress, key: 'searchAfter', save }, async contacts => {
       await Promise.all(contacts.map(c => upsertContact(locationId, c, fileFieldIds, nameById, null)));
       progress.contactsSeen += contacts.length;
-      searchAfter = contacts[contacts.length - 1].searchAfter;
-      progress.searchAfter = searchAfter;
-      await save();
-      if (!searchAfter || contacts.length < 100) break;
-    }
-    progress.pass1Done = true; delete progress.searchAfter; await save();
+    });
+    progress.pass1Done = true; await save();
   }
   if (!fields.length) { progress.note = 'no file fields on this location'; return; }
 
@@ -67,14 +104,8 @@ export async function contactFields(ctx) {
     await save();
   }
 
-  let searchAfter = progress.searchAfter2 || undefined;
-  while (true) {
-    const body = { locationId, pageLimit: 100, ...(searchAfter ? { searchAfter } : {}) };
-    body.filters = [...sinceFilter, ...(progress.mode === 'filtered' ? [existsFilter] : [])];
-    if (!body.filters.length) delete body.filters;
-    const data = await ghl(locationId, 'POST', '/contacts/search', { body });
-    const page = data.contacts || [];
-    if (!page.length) break;
+  const filters = [...sinceFilter, ...(progress.mode === 'filtered' ? [existsFilter] : [])];
+  await walkContacts(locationId, { filters, progress, key: 'searchAfter2', save }, async page => {
     progress.candidates += page.length;
 
     // GET /contacts/{id} is the only call that returns FILE_UPLOAD values.
@@ -97,11 +128,7 @@ export async function contactFields(ctx) {
       tasks.push(upsertContact(locationId, c, fileFieldIds, nameById, fileCount));
     }
     await Promise.all(tasks);
-    searchAfter = page[page.length - 1].searchAfter;
-    progress.searchAfter2 = searchAfter;
-    await save();
-    if (!searchAfter || page.length < 100) break;
-  }
+  });
 }
 
 export async function opportunityFields(ctx) {

@@ -91,11 +91,14 @@ export async function ingest(jobId, locationId, url, meta = {}) {
     const sub = meta.fieldName ? safe(meta.fieldName) : (meta.messageId || meta.opportunityId || '');
     const key = [locationId, meta.source, safe(owner), sub, `${existing.id}_${filename}`].filter(Boolean).join('/');
 
+    // .pipe() doesn't forward errors: if the download dies (timeout, reset) the upload must fail too, not wait forever.
+    const src = Readable.fromWeb(res.body);
+    src.on('error', e => counter.destroy(e));
     const upload = new Upload({
       client: r2,
       params: {
         Bucket: BUCKET, Key: key,
-        Body: Readable.fromWeb(res.body).pipe(counter),
+        Body: src.pipe(counter),
         ContentType: res.headers.get('content-type') || meta.mimeType || 'application/octet-stream',
         Metadata: { sourceUrl: url.slice(0, 1000), locationId, source: meta.source || '' },
       },
@@ -109,8 +112,8 @@ export async function ingest(jobId, locationId, url, meta = {}) {
       [existing.id, key, filename, res.headers.get('content-type'), size, uploadedAt]);
     return { ...existing, status: 'done', r2_key: key, etag: result.ETag };
   } catch (err) {
-    await q(`UPDATE files SET status='failed', error=$2 WHERE id=$1`, [existing.id, String(err.message).slice(0, 500)]);
-    return { ...existing, status: 'failed', error: err.message };
+    await q(`UPDATE files SET status='failed', error=$2 WHERE id=$1`, [existing.id, String(err?.message || err).slice(0, 500)]);
+    return { ...existing, status: 'failed', error: String(err?.message || err) };
   }
 }
 
@@ -162,6 +165,7 @@ export function presign(key, filename, expiresIn = 24 * 3600) {
 export async function uploadStream(key, stream, contentType = 'application/zip') {
   let bytes = 0;
   const counter = new Transform({ transform(c, _e, cb) { bytes += c.length; cb(null, c); } });
+  stream.on('error', e => counter.destroy(e));   // fail the upload instead of hanging on a stream that will never end
   const up = new Upload({ client: r2, params: { Bucket: BUCKET, Key: key, Body: stream.pipe(counter), ContentType: contentType }, partSize: 64 * 1024 * 1024, queueSize: 2 });
   await up.done();
   return bytes;

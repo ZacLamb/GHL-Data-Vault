@@ -98,7 +98,7 @@ export async function runPush(push) {
   const save = async (note) => {
     progress.at = new Date().toISOString(); if (note !== undefined) progress.note = note;
     const { rows: [cur] } = await q('UPDATE pushes SET progress=$2 WHERE id=$1 RETURNING status', [push.id, progress]);
-    if (cur.status === 'cancelled') throw Object.assign(new Error('cancelled'), { cancelled: true });
+    if (!cur || cur.status === 'cancelled') throw Object.assign(new Error('cancelled'), { cancelled: true });
   };
   const fail = (what, err) => { if (progress.errors.length < 200) progress.errors.push(`${what}: ${String(err.message || err).slice(0, 200)}`); };
 
@@ -159,7 +159,7 @@ export async function runPush(push) {
       await q(`UPDATE pushes SET status='queued', not_before=$2, progress=$3 WHERE id=$1`, [push.id, resetAt, progress]);
       return;
     }
-    await q(`UPDATE pushes SET status='failed', finished_at=now(), error=$2, progress=$3 WHERE id=$1`, [push.id, String(err.message).slice(0, 500), progress]);
+    await q(`UPDATE pushes SET status='failed', finished_at=now(), error=$2, progress=$3 WHERE id=$1`, [push.id, String(err?.message || err).slice(0, 500), progress]);
     throw err;
   }
 }

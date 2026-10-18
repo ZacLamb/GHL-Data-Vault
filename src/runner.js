@@ -17,14 +17,14 @@ export async function runJob(job) {
     if (!crawl) continue;
     progress[name] ??= {};
     if (progress[name].status === 'done') continue;   // resumed job: skip finished sources
-    progress[name].status = 'running'; delete progress[name].note;
+    progress[name].status = 'running'; delete progress[name].note; delete progress[name].error;   // a resumed source starts with a clean slate
     progress[name].at = new Date().toISOString();
 
     // save() runs after every page; it also acts as the cancel checkpoint.
     const save = async () => {
       progress[name].at = new Date().toISOString();   // heartbeat: the dashboard shows "last progress Xm ago"
       const { rows: [cur] } = await q('UPDATE jobs SET progress=$2 WHERE id=$1 RETURNING status', [job.id, progress]);
-      if (cur.status === 'cancelled') throw Object.assign(new Error('cancelled'), { cancelled: true });
+      if (!cur || cur.status === 'cancelled') throw Object.assign(new Error('cancelled'), { cancelled: true });
     };
     try {
       await crawl({ jobId: job.id, locationId: job.location_id, progress: progress[name], save, since: job.since ? new Date(job.since).toISOString() : null });
@@ -32,7 +32,7 @@ export async function runJob(job) {
     } catch (err) {
       if (err.cancelled) { progress[name].status = 'paused'; await q('UPDATE jobs SET progress=$2 WHERE id=$1', [job.id, progress]); return; }
       progress[name].status = 'failed';
-      progress[name].error = String(err.message).slice(0, 500);
+      progress[name].error = String(err?.message || err).slice(0, 500);
       if (err.dailyLimit) {
         // Park the job (keeping its cursor) until the sub-account's daily quota resets, then tick() re-launches it.
         const resetAt = nextQuotaReset();
@@ -101,7 +101,15 @@ export async function tick() {
     for (const job of jobs) {
       if (active.size >= MAX) return;
       if (active.has(job.location_id)) continue;
-      launch(job.location_id, () => runJob(job));
+      launch(job.location_id, async () => {
+        // Anything runJob didn't handle itself: record it on the job instead of leaving it "running" to be retried every tick.
+        try { await runJob(job); }
+        catch (err) {
+          if (err?.cancelled) return;
+          await q(`UPDATE jobs SET status='failed', finished_at=now(), error=$2 WHERE id=$1 AND status='running'`, [job.id, String(err?.message || err).slice(0, 500)]);
+          throw err;
+        }
+      });
     }
     if (active.size >= MAX) return;
     const { rows: pkgs } = await q(
@@ -112,7 +120,7 @@ export async function tick() {
       if (active.has(pkg.location_id)) continue;
       launch(pkg.location_id, async () => {
         try { await buildPackage(pkg); }
-        catch (err) { await q(`UPDATE packages SET status='failed', error=$2 WHERE id=$1`, [pkg.id, String(err.message).slice(0, 500)]); throw err; }
+        catch (err) { await q(`UPDATE packages SET status='failed', error=$2 WHERE id=$1`, [pkg.id, String(err?.message || err).slice(0, 500)]); throw err; }
       });
     }
     // zip bundles: independent of GHL, keyed as 'bundle:<id>' so they can run beside a crawl for the same location
@@ -151,6 +159,8 @@ async function watchdog() {
 }
 
 export function startWorker() {
+  // Zip parts that were mid-build when the process stopped would otherwise sit at "running" forever (tick only picks queued ones).
+  q(`UPDATE bundles SET status='queued' WHERE status='running'`).catch(err => console.error('runner: could not requeue bundles', err.message));
   setInterval(tick, 5000);
   setInterval(watchdog, 5 * 60 * 1000);
   tick();

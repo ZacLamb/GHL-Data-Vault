@@ -29,12 +29,14 @@ export async function bundleRows(locationId, scope) {
 }
 
 export async function buildBundle(b) {
-  await q(`UPDATE bundles SET status='running', error=NULL WHERE id=$1`, [b.id]);
   try {
+    await q(`UPDATE bundles SET status='running', error=NULL WHERE id=$1`, [b.id]);
     const rows = (await bundleRows(b.location_id, b.scope)).slice((b.part - 1) * PART_FILES, b.part * PART_FILES);
     const key = `exports/${b.location_id}/${b.scope.replace(':', '-')}/part-${b.part}-of-${b.total_parts}.zip`;
     const zip = archiver('zip', { store: true });
     const out = new PassThrough();
+    // A zip error must also fail the upload, otherwise the upload waits forever for a stream that never ends.
+    zip.on('error', err => out.destroy(err));
     zip.pipe(out);
     const uploading = uploadStream(key, out);
     const missing = [];
@@ -54,7 +56,8 @@ export async function buildBundle(b) {
     const bytes = await uploading;
     await q(`UPDATE bundles SET status='done', r2_key=$2, bytes=$3, finished_at=now() WHERE id=$1`, [b.id, key, bytes]);
   } catch (err) {
-    await q(`UPDATE bundles SET status='failed', error=$2 WHERE id=$1`, [b.id, String(err.message).slice(0, 500)]);
+    console.error(`[bundle ${b.id}]`, err?.message || err);
+    await q(`UPDATE bundles SET status='failed', error=$2 WHERE id=$1`, [b.id, String(err?.message || err).slice(0, 500)]).catch(() => {});
   }
 }
 

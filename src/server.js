@@ -32,8 +32,14 @@ for (const m of ['get', 'post', 'put', 'delete']) {
   app[m] = (path, ...handlers) => orig(path, ...handlers.map(h => typeof h === 'function' && h.length < 4
     ? (req, res, next) => Promise.resolve(h(req, res, next)).catch(next) : h));
 }
+// Last line of defence: a stray rejection or stream error is logged, never fatal (a crash would also stop every backup in flight).
 process.on('unhandledRejection', err => console.error('unhandledRejection:', err?.stack || err));
 process.on('uncaughtException', err => console.error('uncaughtException:', err?.stack || err));
+// Pipe an R2 object stream into a response; a read error mid-way ends the response instead of leaving it hanging.
+const pipeTo = (stream, res) => {
+  stream.on('error', err => { console.error('stream', err.message); if (res.headersSent) res.destroy(err); else res.status(502).json({ error: 'Could not read that file from storage. Try again in a minute.' }); });
+  stream.pipe(res);
+};
 app.use(express.json());
 app.use(cookieParser());
 
@@ -458,13 +464,13 @@ app.get('/api/packages/:id/contacts.csv', ownPkg, async (req, res) => {
   const { rows: [pkg] } = await q('SELECT * FROM packages WHERE id=$1', [req.params.id]);
   if (!pkg?.r2_prefix) return res.status(404).send('package not built yet');
   res.set('Content-Type', 'text/csv').set('Content-Disposition', `attachment; filename="package-${pkg.id}-contacts.csv"`);
-  (await getObjectStream(`${pkg.r2_prefix}/contacts.csv`)).pipe(res);
+  pipeTo(await getObjectStream(`${pkg.r2_prefix}/contacts.csv`), res);
 });
 app.get('/api/packages/:id/manifest.csv', ownPkg, async (req, res) => {
   const { rows: [pkg] } = await q('SELECT * FROM packages WHERE id=$1', [req.params.id]);
   if (!pkg?.r2_prefix) return res.status(404).send('package not built yet');
   res.set('Content-Type', 'text/csv').set('Content-Disposition', `attachment; filename="package-${pkg.id}-manifest.csv"`);
-  (await getObjectStream(`${pkg.r2_prefix}/manifest.csv`)).pipe(res);
+  pipeTo(await getObjectStream(`${pkg.r2_prefix}/manifest.csv`), res);
 });
 app.get('/api/packages/:id/export', ownPkg, async (req, res) => {
   const { rows: [pkg] } = await q('SELECT * FROM packages WHERE id=$1', [req.params.id]);
@@ -563,7 +569,15 @@ app.get('/api/sources', (_req, res) => res.json(ALL_SOURCES));
 
 app.use((err, req, res, _next) => {
   console.error(`${req.method} ${req.originalUrl} ->`, err?.stack || err);
-  if (!res.headersSent) res.status(500).json({ error: String(err?.message || err) });
+  // Already streaming (csv/zip): the status line is gone, so end the connection rather than leave the download hanging.
+  if (res.headersSent) return res.destroy();
+  if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'The request body is not valid JSON.' });
+  const status = err?.status >= 400 && err?.status < 500 ? err.status : 500;
+  // Our own messages are written for people; raw storage-SDK and Postgres errors are not, so those get a plain one (details stay in the log).
+  const message = err?.$metadata ? 'Could not reach file storage. Please try again in a minute.'
+    : /^[0-9A-Z]{5}$/.test(err?.code || '') ? 'Something went wrong reading the vault database. Please try again.'
+    : String(err?.message || err || 'Something went wrong. Please try again.');
+  res.status(status).json({ error: message });
 });
 
 const port = process.env.PORT || 3000;
