@@ -1,404 +1,711 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Data Vault · Locations</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/vault.css">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Vault · RGS Tools</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="/config.js"></script>
-<script src="/vault.js" data-page="locations"></script>
+<script src="/ui/rgs-shell.js"></script>
+<link rel="stylesheet" href="/ui/rgs-ui.css">
+<link rel="stylesheet" href="/vault.css">
+<script src="/vault.js"></script>
 <style>
-  .layout{display:grid;grid-template-columns:minmax(0,1fr) 0;transition:grid-template-columns .2s;min-height:calc(100vh - 54px)}
-  .layout.open{grid-template-columns:minmax(0,1fr) 540px}
-  /* agency panel */
-  .agency{margin-bottom:16px;padding:0;overflow:hidden}
-  .agency .top{display:flex;gap:14px;flex-wrap:wrap;align-items:center;padding:14px 18px}
-  .agency .top .gl{color:var(--accent)}
-  .agency .meta{display:flex;gap:6px 18px;flex-wrap:wrap;align-items:center;padding:0 18px 12px;color:var(--dim);font-size:12.5px}
-  .agency .meta b{color:var(--ink);font-weight:600}
-  .agency .meta .dot{width:4px;height:4px;border-radius:50%;background:var(--line-2)}
-  .agency .toggles{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:10px 18px;border-top:1px solid var(--line);background:var(--panel-2)}
-  .agency .toggles .btn svg{width:12px;height:12px;transition:transform .15s}
-  .agency .toggles .btn.open{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 45%,var(--line));color:var(--ink)}
-  .agency .toggles .btn.open svg{transform:rotate(90deg)}
-  .agency .toggles .last{margin-left:auto;font-size:12px;color:var(--dim)}
-  .agency .panel{padding:16px 18px;border-top:1px solid var(--line);display:flex;gap:12px 14px;flex-wrap:wrap;align-items:center}
-  .agency .panel[hidden]{display:none}
-  .agency .panel .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;width:100%}
-  .agency .panel label.inline{display:flex;gap:7px;align-items:center;font-size:13px;cursor:pointer}
-  .srcs{display:flex;gap:6px 14px;flex-wrap:wrap;align-items:center;color:var(--dim);font-size:12.5px;width:100%}
-  .srcs>span:first-child{font:600 10.5px/1 "Schibsted Grotesk",sans-serif;letter-spacing:.12em;text-transform:uppercase;min-width:150px}
-  .srcs label{display:flex;gap:6px;align-items:center;cursor:pointer;color:var(--ink-2)}
-  /* overall + chips + toolbar */
-  #overall{margin:0 0 12px}
-  .chips{margin:0 0 12px}
-  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
-  .toolbar input[type=search]{min-width:280px;flex:1;max-width:460px;padding-left:34px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-size:15px;background-position:11px center}
-  .toolbar .sp{flex:1}
-  /* table */
-  .tbl{padding:0;overflow:hidden}
-  table{table-layout:fixed}
-  th{padding:11px 12px}th:first-child{padding-left:18px}
-  td{padding:9px 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}td:first-child{padding-left:18px}
-  tr.loc{cursor:pointer}
-  tr.loc.sel td{background:var(--sel)}tr.loc.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
-  td .name{font-weight:600}td .id{display:block;font-size:10.5px;margin-top:1px}
-  tr.loc.off td{opacity:.5}
-  .more{display:flex;justify-content:center;padding:14px;color:var(--dim)}
-  .pcell{display:flex;flex-direction:column;gap:2px;line-height:1.25}.pcell .pt{color:var(--ink);font-size:12px;overflow:hidden;text-overflow:ellipsis}.pcell .ps{font-size:10.5px;color:var(--dim)}
-  .pbar{height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin-top:3px}.pbar span{display:block;height:100%;background:var(--accent);transition:width .6s}
-  /* drawer */
-  aside{overflow:auto;position:sticky;top:54px;max-height:calc(100vh - 54px);display:none;padding:20px 22px 72px}
-  .layout.open aside{display:block;animation:slide .2s ease}
-  @keyframes slide{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:none}}
-  .stats{display:flex;gap:22px;flex-wrap:wrap;font-size:11px;color:var(--dim);margin:12px 0 2px;letter-spacing:.06em;text-transform:uppercase;font-weight:600}
-  .stats b{color:var(--ink);font-size:17px;display:block;font-family:"JetBrains Mono",monospace;letter-spacing:-.02em;font-weight:600;text-transform:none}
-  .pkgrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:7px 0;font-size:12.5px;color:var(--dim);border-top:1px solid var(--line)}.pkgrow b{color:var(--ink)}
-  .pkgrow .btn{padding:3px 8px;font-size:11.5px}
-  .pushform{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}.pushform label.field{min-width:0}.pushform label.field:nth-child(3),.pushform>.checks,.pushform>.gb,.pushform>#pushPrev{grid-column:1/-1}.pushform select,.pushform input{width:100%}.pushform .checks{gap:6px 18px}
-  @media(max-width:1100px){.layout.open{grid-template-columns:1fr}.layout.open main{display:none}aside{position:static;max-height:none}}
+  @media (min-width: 1101px) { .split.has-insp { grid-template-columns: minmax(0, 1fr) 380px; } }
+  .storage { padding: 16px 18px 14px; margin-bottom: 22px; }
+  .storage .top { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .storage .top b { font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+  .storage .top .sec { margin-left: auto; }
+  .storage .meter { margin-top: 14px; }
+  .storage .meter i:first-child { border-radius: 6px 0 0 6px; } .storage .meter i:last-child { border-radius: 0 6px 6px 0; }
+  .storage .lg2 { display: flex; gap: 6px 18px; flex-wrap: wrap; margin-top: 12px; font-size: 12.5px; color: var(--sec); }
+  .storage .lg2 span { display: inline-flex; align-items: center; gap: 6px; }
+  .storage .lg2 .dot { border-radius: 3px; width: 10px; height: 10px; }
+  .storage .lg2 b { color: var(--text); font-weight: 550; font-variant-numeric: tabular-nums; }
+  .chips { margin-bottom: 18px; }
+  @media (max-width: 600px) { .storage .top .sec { margin-left: 0; } }
+  .is-empty #overall, .is-empty #chips, .is-empty #listGh { display: none; }
+  .chip .dot { width: 7px; height: 7px; }
+  .li.off > .av { opacity: .45; } .li.off .main b { color: var(--sec); }
+  .li .main .sub .w { color: var(--orange); }
+  .li.sel .main .sub .w { color: #fff; }
+  .more { text-align: center; margin: -10px 0 22px; }
+  .skrow { display: flex; gap: 12px; align-items: center; padding: 12px 14px; } .skrow .av { background: var(--fill); box-shadow: none; }
+
+  /* inspector */
+  .insp-hero .av.xl { width: 62px; height: 62px; border-radius: 16px; font-size: 22px; margin: 0 auto 12px; }
+  .insp-hero .id { font-size: 11.5px; color: var(--ter); margin-top: 4px; display: inline-block; }
+  .qa { flex-wrap: wrap; }
+  .insp .grp { margin-bottom: 18px; }
+  .insp .gh { padding-left: 4px; padding-right: 4px; }
+  .insp .note { margin-bottom: 14px; }
+  .insp .chips { margin: 0 0 10px; }
+  .insp .chip:disabled { opacity: .4; cursor: default; }
+  .li.stack { flex-wrap: wrap; row-gap: 6px; }
+  .li.stack .sub { white-space: normal; }
+  .li.stack .acts { flex-basis: 100%; display: flex; gap: 6px; flex-wrap: wrap; padding-left: 40px; }
+  .li .danger-t { color: var(--red); }
+  .fr .lbl b { font-weight: 550; display: block; } .fr .lbl .sec { font-size: 12px; }
+  .fr.click { cursor: pointer; } .fr.click:hover { background: var(--hover); }
+  .issues { font: 11.5px/1.45 var(--mono); color: var(--sec); white-space: pre-wrap; max-height: 160px; overflow: auto; margin-top: 6px; }
+  .preview-fields .li { min-height: 38px; }
 </style>
 </head>
 <body>
-<div class="layout" id="layout">
-<main>
-  <div class="pagehead"><h1>Locations</h1><span class="sub" id="pagesub"></span></div>
-  <div class="card agency" id="backup">
-    <div class="top">
-      <span class="gl">Agency backup</span>
-      <span style="flex:1"></span>
-      <a class="btn" id="bkConnect" href="#" target="_blank">Connect sub-accounts on the hub</a>
-      <button class="btn" id="bkTest" title="Get a token from the hub for one sub-account and read one contact page">Test credential</button>
-      <button class="btn" id="importAgency2" title="Add every sub-account connected to your hub account">Import connected sub-accounts</button>
-      <button class="btn primary" id="bkNow" title="Queue a backup for every enabled sub-account right now">Backup all now</button>
-    </div>
-    <div class="meta" id="bkStatus"></div>
-    <div class="toggles">
-      <button class="btn" data-toggle="schedPanel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>Schedule &amp; sources</button>
-      <button class="btn" data-toggle="addPanel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>Add one sub-account</button>
-      <span class="last" id="bkLast"></span>
-    </div>
-    <div class="panel" id="schedPanel" hidden>
-      <div class="row">
-        <label class="inline"><input type="checkbox" id="bkEnabled"> Run monthly on day</label>
-        <input id="bkDay" type="number" min="1" max="28" style="width:64px">
-        <span class="dim">at</span><input id="bkHour" type="number" min="0" max="23" style="width:64px"><span id="bkTz" class="dim"></span>
-        <select id="bkMode"><option value="incremental">Incremental — only what changed since last backup</option><option value="full">Full re-crawl</option></select>
-        <label class="inline"><input type="checkbox" id="bkImport"> Import new sub-accounts first</label>
-        <button class="btn primary" id="bkSave">Save schedule</button>
+  <div class="toolbar-top">
+    <div class="seg" id="nav"></div>
+    <span class="spacer"></span>
+    <div class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" id="q" placeholder="Search sub-accounts" autocomplete="off"><span class="kbd">/</span></div>
+    <span class="menu-wrap"><button class="icon-btn" id="moreBtn" title="More" aria-label="More actions"></button><div class="menu" id="moreMenu"></div></span>
+  </div>
+
+  <div class="split" id="split">
+    <div class="wrap">
+      <div class="page-head">
+        <div><h1>Data Vault</h1><p id="pagesub">Everything GHL's export leaves behind, kept safe in your own storage</p></div>
+        <div class="actions">
+          <button class="btn tinted" id="schedBtn"></button>
+          <button class="btn lg" id="bkNow" title="Back up every sub-account that's in the monthly backup, right now"></button>
+        </div>
       </div>
-      <div class="srcs" id="bkSrcs"><span>Backup sources</span></div>
-      <div class="srcs" id="srcs"><span>Manual run sources</span></div>
+      <div id="notes"></div>
+      <div id="overall"></div>
+      <div class="chips" id="chips"></div>
+      <div class="gh" id="listGh"><span id="listTitle">Sub-accounts</span><span class="end"><select class="mini" id="sort" aria-label="Sort">
+        <option value="name">Sorted by name</option><option value="status">Sorted by status</option><option value="last">Sorted by last backup</option>
+        <option value="contacts">Sorted by contacts</option><option value="files">Sorted by files</option><option value="bytes">Sorted by size</option><option value="failed">Sorted by problems</option>
+      </select></span></div>
+      <div class="grp card" id="rows"></div>
+      <div class="more" id="more"></div>
     </div>
-    <div class="panel" id="addPanel" hidden>
-      <select id="locId" style="min-width:320px"><option value="">— connected sub-accounts not yet in the vault —</option></select>
-      <button class="btn primary" id="addLoc">Add to vault</button>
-      <span class="hint" style="margin:0;width:100%">Sub-accounts come from your account on the hub. Connect more there — one at a time with a token, or your whole agency in one click.</span>
-    </div>
+    <aside class="insp" id="insp"></aside>
   </div>
 
-  <div id="overall"></div>
-  <div class="chips" id="chips"></div>
-  <div class="toolbar">
-    <input type="search" id="q" placeholder="Search name or location ID…">
-    <select id="sort">
-      <option value="name">Sort: name</option>
-      <option value="status">Sort: status</option>
-      <option value="last">Sort: last run (newest)</option>
-      <option value="contacts">Sort: contacts</option>
-      <option value="files">Sort: files</option>
-      <option value="bytes">Sort: size</option>
-      <option value="failed">Sort: failed files</option>
-    </select>
-    <span class="sp"></span>
-    <span id="count" class="dim" style="font-size:12px"></span>
-    <button class="btn red" id="retryAll" title="Resume every failed/cancelled job and retry failed files" style="display:none">Retry all failed</button>
-    <button class="btn" id="runVisible" title="Queue a full export for every location in the current filter">Run export on filtered</button>
-  </div>
-  <div class="card tbl">
-  <table>
-    <thead><tr>
-      <th data-k="name" style="width:25%">Location</th>
-      <th data-k="status" style="width:12%">Status</th>
-      <th data-k="last" style="width:21%">Progress / last run</th>
-      <th data-k="contacts" class="r" style="width:10%">Contacts</th>
-      <th data-k="files" class="r" style="width:9%">Files</th>
-      <th data-k="bytes" class="r" style="width:9%">Size</th>
-      <th data-k="failed" class="r" style="width:8%">Failed</th>
-      <th style="width:6%;cursor:default;text-align:center" title="Include in monthly backup">Backup</th>
-    </tr></thead>
-    <tbody id="rows"></tbody>
-  </table>
-  <div class="more" id="more"></div>
-  </div>
-</main>
-<aside id="drawer" class="drawer"></aside>
-</div>
-<div class="toast" id="toast"></div>
 <script>
-const $=s=>document.querySelector(s);
-const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3200)};
-const api=(p,o={})=>fetch(p,{headers:{'Content-Type':'application/json'},credentials:'same-origin',...o,body:o.body?JSON.stringify(o.body):undefined}).then(async r=>{const d=await r.json().catch(()=>({}));if((r.status===401||r.status===402)&&(d.login||d.subscribe))location.href=d.login||d.subscribe;return d});
-const fmtB=n=>{n=Number(n||0);const u=['B','KB','MB','GB','TB'];let i=0;while(n>=1024&&i<4){n/=1024;i++}return n.toFixed(i?1:0)+' '+u[i]};
-const fmtN=n=>Number(n||0).toLocaleString();
-const fmtD=s=>s?new Date(s).toLocaleString():'—';
-const ago=s=>{if(!s)return '—';const m=(Date.now()-new Date(s))/60000;if(m<1)return 'just now';if(m<60)return Math.round(m)+'m ago';if(m<1440)return Math.round(m/60)+'h ago';return Math.round(m/1440)+'d ago'};
-const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-let SOURCES=[];
-async function loadSources(){SOURCES=await api('/api/sources');const box=$('#srcs');
-  SOURCES.forEach(s=>{const l=document.createElement('label');l.innerHTML=`<input type=checkbox value="${s}" checked> ${s}`;box.appendChild(l)})}
-const chosen=()=>[...document.querySelectorAll('#srcs input:checked')].map(i=>i.value);
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const { esc, api, N, fmtB, short, DT, when, ago, srcName } = V;
+  let I = () => '';
 
-// ---------- state ----------
-const state={locs:[],filter:localStorage.vaultFilter||'all',q:'',sort:localStorage.vaultSort||'name',dir:1,page:1,sel:localStorage.vaultSel||null};
-const PAGE=60;
-$('#sort').value=state.sort;
-const statusOf=l=>{if(l.inactive)return 'inactive';const j=l.last_job;if(!j)return 'never';if(j.status==='queued'&&j.not_before&&new Date(j.not_before)>Date.now())return 'parked';return j.status};
-const STATUS_ORDER={failed:0,running:1,parked:2,queued:3,cancelled:4,done:5,never:6,inactive:7};
-function matches(l){
-  const s=statusOf(l);
-  switch(state.filter){
-    case 'running':if(s!=='running')return false;break;
-    case 'queued':if(s!=='queued'&&s!=='parked')return false;break;
-    case 'failed':if(l.inactive||(s!=='failed'&&s!=='cancelled'&&!Number(l.files_failed)))return false;break;
-    case 'done':if(s!=='done')return false;break;
-    case 'never':if(s!=='never')return false;break;
-    case 'excluded':if(l.backup_enabled!==false)return false;break;
-    case 'inactive':if(s!=='inactive')return false;break;
-    case 'empty':if(s==='never'||Number(l.files_done))return false;break;
-  }
-  if(state.q){const q=state.q.toLowerCase();if(!(l.name||'').toLowerCase().includes(q)&&!l.location_id.toLowerCase().includes(q))return false}
-  return true;
-}
-function sortVal(l,k){switch(k){
-  case 'name':return (l.name||'~').toLowerCase();
-  case 'status':return STATUS_ORDER[statusOf(l)]??9;
-  case 'last':return -(new Date(l.last_job?.finished_at||l.last_job?.created_at||0).getTime());
-  case 'contacts':return -Number(l.contacts);
-  case 'files':return -Number(l.files_done);
-  case 'bytes':return -Number(l.bytes);
-  case 'failed':return -Number(l.files_failed)-(statusOf(l)==='failed'?1e12:0);
-}}
-function visible(){
-  const rows=state.locs.filter(matches);
-  rows.sort((a,b)=>{const x=sortVal(a,state.sort),y=sortVal(b,state.sort);return (x<y?-1:x>y?1:0)*state.dir||(a.name||'').localeCompare(b.name||'')});
-  return rows;
-}
-function renderChips(){
-  const L=state.locs,c=k=>L.filter(l=>{const s=statusOf(l);return k==='running'?s==='running':k==='queued'?(s==='queued'||s==='parked'):k==='failed'?(!l.inactive&&(s==='failed'||s==='cancelled'||Number(l.files_failed))):k==='done'?s==='done':k==='never'?s==='never':k==='excluded'?l.backup_enabled===false:k==='inactive'?s==='inactive':k==='empty'?(s!=='never'&&!Number(l.files_done)):true}).length;
-  const chips=[['all','all',''],['done','complete','green'],['running','running','amber'],['queued','queued','blue'],['failed','needs attention','red'],['never','never run',''],['inactive','inactive in GHL',''],['empty','no files',''],['excluded','excluded from backup','']];
-  $('#chips').innerHTML=chips.map(([k,label,cls])=>`<span class="chip ${cls} ${state.filter===k?'on':''}" data-filter="${k}"><b>${fmtN(c(k))}</b>${label}</span>`).join('');
-  $('#retryAll').style.display=c('failed')?'':'none';
-  // overall progress bar
-  const n=L.length||1,segs=[['done',c('done'),'var(--green)'],['running',c('running'),'var(--amber)'],['queued',c('queued'),'var(--blue)'],['failed',L.filter(l=>['failed','cancelled'].includes(statusOf(l))).length,'var(--red)'],['never',c('never'),'var(--line)'],['inactive',c('inactive'),'var(--line-2)']];
-  $('#overall').innerHTML=`<div class="obar">${segs.map(([k,v,col])=>v?`<span style="width:${v/n*100}%;background:${col}" title="${v} ${k}"></span>`:'').join('')}</div>
-    <div class="dim" style="font-size:11px;margin-top:4px">${Math.round(c('done')/n*100)}% complete · ${segs.map(([k,v])=>`${fmtN(v)} ${k}`).join(' · ')}</div>`;
-}
-// progress for a running job: which source is active, how far along, with a bar when a ratio is known
-function progCell(l){
-  const p=l.last_job?.progress||{};const srcs=Object.keys(p);const doneN=srcs.filter(k=>p[k].status==='done').length;
-  const act=srcs.find(k=>p[k].status&&p[k].status!=='done'&&p[k].status!=='pending')||srcs[doneN];
-  const v=act?p[act]:null;let ratio=null,txt='starting…';
-  if(v){
-    if(v.candidatesTotal&&v.fetched!=null){ratio=v.fetched/v.candidatesTotal;txt=`${fmtN(v.fetched)}/${fmtN(v.candidatesTotal)} with docs`}
-    else if(v.contactsSeen!=null){ratio=Number(l.contacts)?Math.min(v.contactsSeen/Number(l.contacts),1):null;txt=`${fmtN(v.contactsSeen)} contacts read`}
-    else if(v.filesFound!=null)txt=`${fmtN(v.filesFound)} files found`;
-    else if(v.fetched!=null)txt=`${fmtN(v.fetched)} fetched`;
-    else txt=v.status||'…';
-  }
-  const last=Math.max(0,...srcs.map(k=>p[k].at?new Date(p[k].at).getTime():0));const silentMin=last?(Date.now()-last)/60000:null;
-  const hb=silentMin==null?'':silentMin>15?` · <span class="f">no progress for ${Math.round(silentMin)}m — stalled?</span>`:` · ${silentMin<1?'just now':Math.round(silentMin)+'m ago'}`;
-  return `<div class="pcell"><span class="pt">${act||''} · ${txt}</span><span class="ps">${doneN}/${srcs.length} sources${hb}</span>${ratio!=null?`<div class="pbar"><span style="width:${Math.round(ratio*100)}%"></span></div>`:''}</div>`;
-}
-function renderTable(){
-  const rows=visible();const box=$('#rows');
-  const shown=rows.slice(0,PAGE*state.page);
-  $('#count').textContent=`${fmtN(shown.length)} of ${fmtN(rows.length)} shown · ${fmtN(state.locs.length)} total`;
-  const seen=new Set();let cursor=null;
-  for(const l of shown){
-    seen.add(l.location_id);
-    const j=l.last_job,s=statusOf(l);
-    const html=`<td><span class="name">${esc(l.name||'(unnamed)')}</span><span class="id">${l.location_id}</span></td>
-      <td><span class="pill ${s}">${s==='parked'?'quota wait':s}</span></td>
-      <td class="dim" title="${j?fmtD(j.finished_at||j.created_at):''}">${s==='running'?progCell(l):s==='parked'?`<div class="pcell"><span class="pt">daily API quota reached</span><span class="ps">resumes ${fmtD(j.not_before)}</span></div>`:j?`${ago(j.finished_at||j.created_at)} <span style="opacity:.6">#${j.id}${j.trigger==='scheduled'?' auto':j.since?' sync':''}</span>`:'—'}</td>
-      <td class="r">${fmtN(l.contacts)}</td>
-      <td class="r">${fmtN(l.files_done)}</td>
-      <td class="r dim">${fmtB(l.bytes)}</td>
-      <td class="r ${Number(l.files_failed)?'f':'dim'}">${Number(l.files_failed)?fmtN(l.files_failed):'·'}</td>
-      <td style="text-align:center"><input type="checkbox" data-bk="${l.location_id}" ${l.backup_enabled!==false?'checked':''} onclick="event.stopPropagation()"></td>`;
-    let tr=box.querySelector(`tr[data-loc="${l.location_id}"]`);
-    if(!tr){tr=document.createElement('tr');tr.className='loc';tr.dataset.loc=l.location_id;tr.innerHTML=html;tr.dataset.html=html}
-    else if(tr.dataset.html!==html){tr.innerHTML=html;tr.dataset.html=html}
-    tr.classList.toggle('sel',state.sel===l.location_id);tr.classList.toggle('off',s==='inactive');
-    // keep DOM order in sync with sort
-    if(cursor?cursor.nextSibling!==tr:box.firstChild!==tr)box.insertBefore(tr,cursor?cursor.nextSibling:box.firstChild);
-    cursor=tr;
-  }
-  box.querySelectorAll('tr').forEach(r=>{if(!seen.has(r.dataset.loc))r.remove()});
-  $('#more').innerHTML=rows.length>shown.length?`<button class="btn" id="moreBtn">Show ${Math.min(PAGE,rows.length-shown.length)} more (${fmtN(rows.length-shown.length)} remaining)</button>`:rows.length?'':'<span>No locations match.</span>';
-  // sort header
-  document.querySelectorAll('th[data-k]').forEach(th=>th.classList.toggle('sorted',th.dataset.k===state.sort));
-}
-let loading=false;
-async function load(){
-  if(loading)return;loading=true;
-  try{const r=await fetch('/api/locations');if(!r.ok)throw new Error(r.status);const locs=await r.json();if(!Array.isArray(locs))throw new Error('bad payload');state.locs=locs;($('#conn')||{}).textContent=''}
-  catch(e){($('#conn')||{}).textContent='reconnecting…';loading=false;return}
-  renderChips();renderTable();if(state.sel)renderDrawer();
-  loading=false;
-}
+  // ---------- state ----------
+  const ls = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch { return null; } };
+  const state = { locs: null, filter: ls('vaultFilter') || 'all', q: '', sort: ls('vaultSort') || 'name', dir: 1, page: 1, sel: ls('vaultSel') || null, backup: null, sources: [], manual: null };
+  const PAGE = 60;
+  if (window.innerWidth <= 1100) state.sel = null;   // don't pop the inspector sheet open on phones
+  $('sort').value = state.sort;
 
-// ---------- drawer ----------
-function progText(j){return j?Object.entries(j.progress||{}).map(([k,v])=>`${k}: ${v.status||'…'}${v.contactsSeen!=null?` · ${fmtN(v.contactsSeen)} contacts read`:''}${v.candidatesTotal!=null?` · ${fmtN(v.candidatesTotal)} with docs`:''}${v.fetched!=null?` · ${fmtN(v.fetched)} fetched`:''}${v.filesFound!=null?` · ${fmtN(v.filesFound)} files found`:''}${v.users!=null?` · ${v.users} users`:''}${v.mode?` · mode=${v.mode}`:''}${v.at?` · ${ago(v.at)}`:''} ${v.error?'✗ '+v.error:''}${v.note?' · '+v.note:''}`).join('\n'):''}
-function renderDrawer(){
-  const l=state.locs.find(x=>x.location_id===state.sel);const d=$('#drawer');
-  if(!l){d.innerHTML='';$('#layout').classList.remove('open');return}
-  $('#layout').classList.add('open');
-  const s=statusOf(l),j=l.last_job,running=j&&['running','queued'].includes(j.status)&&s!=='parked';
-  const html=`<button class="close" id="closeDrawer" title="close">✕</button>
-    <h2>${esc(l.name||'(unnamed)')}</h2>
-    <div class="dim" style="font-size:11px;cursor:pointer" title="click to copy" data-copy="${l.location_id}">${l.location_id} · credentials via hub</div>
-    <div class="stats"><span>contacts<b>${fmtN(l.contacts)}</b></span><span>files<b>${fmtN(l.files_done)}</b></span><span>size<b>${fmtB(l.bytes)}</b></span>${Number(l.files_failed)?`<span class="f">failed<b class="f">${fmtN(l.files_failed)}</b></span>`:''}</div>
-    ${l.inactive?`<div class="sec" style="border-color:var(--red)"><span class="gl f">Inactive in GHL</span><div class="dim" style="font-size:12px">GHL refuses to issue tokens for this sub-account (paused or deactivated), so it can't be read. It has been excluded from the monthly backup. Reactivate it in GHL and click Run export to bring it back, or delete it from the vault below.</div></div>`:''}
-    <div class="sec"><span class="gl">Last run</span>
-      ${s==='parked'?`<div class="dim" style="font-size:12px;margin-bottom:6px">This sub-account used its 200,000 GHL API calls for the day (large accounts need one call per contact on a full crawl). The job keeps its place and continues automatically after ${fmtD(j.not_before)}.</div>`:''}
-      ${j?`<span class="pill ${s}">${s==='parked'?'quota wait':s}</span> <span class="dim">#${j.id}${j.trigger==='scheduled'?' · auto':j.since?' · sync':''} · ${fmtD(j.finished_at||j.created_at)}${j.sources?` · ${j.sources.join(', ')}`:''}</span><pre>${esc(progText(j))}</pre>`:'<span class="dim">never run</span>'}
-    </div>
-    <div class="sec"><span class="gl">Crawl GHL</span><div class="gb">
-      ${running?`<button class="btn" data-cancel="${j.id}">Stop</button>`:s==='parked'?'':`<button class="btn primary" data-run="${l.location_id}" title="Full crawl of the selected sources">Run export</button>${j&&j.status==='done'?`<button class="btn" data-sync="${l.location_id}" title="Only contacts updated since the last completed export">Sync new</button>`:''}`}
-      ${j&&['cancelled','failed'].includes(j.status)?`<button class="btn" data-resume="${j.id}">Resume</button>`:''}
-      ${s==='parked'?`<button class="btn" data-resume="${j.id}" title="GHL allows 200k API calls per sub-account per day; this job hit the cap and is waiting for the reset">Try now</button>`:''}
-      ${j&&Number(l.files_failed)?`<button class="btn" data-retry="${j.id}">Retry failed files</button>`:''}
-    </div></div>
-    <div class="sec"><span class="gl">Analyze</span><div class="gb"><a class="btn amber" href="/analytics.html?loc=${l.location_id}">Documents</a><a class="btn blue" href="/usage.html?loc=${l.location_id}">Usage</a></div></div>
-    <div class="sec"><span class="gl">Export</span><div class="gb"><a class="btn" href="/api/locations/${l.location_id}/export" title="Zip parts with contacts.csv + manifest + all documents, downloaded straight from R2">Download files</a><a class="btn" href="/api/locations/${l.location_id}/manifest.csv">Manifest CSV</a>${Number(l.files_failed)?`<a class="btn red" href="/api/locations/${l.location_id}/failures">Failures</a>`:''}</div></div>
-    <div class="sec" id="pkgs"><span class="gl">Rep packages</span><div class="dim">loading…</div></div>
-    <div class="sec" id="pushsec"><span class="gl">Push to another sub-account</span><div class="dim">loading…</div></div>
-    <div class="sec"><span class="gl">Danger</span><div class="gb"><label class="dim" style="display:flex;gap:6px;align-items:center;margin-right:auto;cursor:pointer"><input type="checkbox" data-bk="${l.location_id}" ${l.backup_enabled!==false?'checked':''}> include in monthly backup</label><button class="btn red" data-reset="${l.location_id}">Reset data</button><button class="btn red" data-del="${l.location_id}">Delete location</button></div></div>`;
-  if(d.dataset.html!==html){const pk=d.querySelector('#pkgs')?.innerHTML,ps=d.querySelector('#pushsec')?.innerHTML;d.innerHTML=html;if(d.dataset.loc===l.location_id){if(pk)d.querySelector('#pkgs').innerHTML=pk;if(ps)d.querySelector('#pushsec').innerHTML=ps}d.dataset.html=html}
-  if(d.dataset.loc!==l.location_id||!d.dataset.pkgAt||Date.now()-d.dataset.pkgAt>8000){const fresh=d.dataset.loc!==l.location_id;d.dataset.loc=l.location_id;d.dataset.pkgAt=Date.now();renderPackages(l.location_id);renderPushes(l.location_id,fresh)}
-}
-async function renderPackages(loc){
-  const [pool,pkgs]=await Promise.all([api(`/api/locations/${loc}/pool`),api(`/api/packages?locationId=${loc}`)]);
-  const el=$('#pkgs');if(!el||state.sel!==loc)return;
-  const next=`<span class="gl">Rep packages · ${fmtN(pool.available)} of ${fmtN(pool.total)} not yet packaged</span><div class="gb" style="margin-bottom:6px">
-    ${pool.sizes.map(s=>`<button class="btn" data-pkg="${loc}" data-size="${s}" ${s>pool.available?'disabled title="not enough unpackaged contacts"':''}>${s>=1000?s/1000+'k':s}</button>`).join('')}<a class="btn amber" href="/analytics.html?loc=${loc}" title="Filter contacts, pick columns and documents, then package">Custom…</a></div>`+
-    pkgs.map(p=>`<div class="pkgrow"><span class="pill ${p.status}">${p.status}</span><b>#${p.id}</b>${p.locked===false?'<span class="dim">export</span>':''}<span>${fmtN(p.contact_count)} contacts · ${p.status==='done'?fmtN(p.file_count)+' files':`${fmtN(p.progress.copied||0)}/${fmtN(p.progress.total||'?')} copied`}${p.progress.failed?` · <span class="f">${p.progress.failed} failed</span>`:''}</span>
-      ${p.status==='done'?`<a class="btn" href="/api/packages/${p.id}/export">Files</a><a class="btn" href="/api/packages/${p.id}/contacts.csv">Contacts CSV</a><a class="btn" href="/api/packages/${p.id}/manifest.csv">Manifest</a><button class="btn blue" data-pushpkg="${p.id}" title="Copy this package's contacts and documents into another sub-account">Push →</button>`:''}
-      <button class="btn red" data-dissolve="${p.id}" title="${p.locked===false?'Delete this export record':'Release these contacts back into the pool'}">${p.locked===false?'remove':'dissolve'}</button></div>`).join('')||'<div class="dim" style="font-size:12px">none yet</div>';
-  if(el.innerHTML!==next)el.innerHTML=next;
-}
+  const statusOf = (l) => { if (l.inactive) return 'inactive'; const j = l.last_job; if (!j) return 'never'; if (j.status === 'queued' && j.not_before && new Date(j.not_before) > Date.now()) return 'parked'; return j.status; };
+  const STATUS_ORDER = { failed: 0, running: 1, parked: 2, queued: 3, cancelled: 4, done: 5, never: 6, inactive: 7 };
+  const FILTERS = {
+    all: ['All', null, () => true],
+    done: ['Backed up', 'var(--green)', (l, s) => s === 'done'],
+    running: ['Backing up', 'var(--blue)', (l, s) => s === 'running'],
+    queued: ['Waiting', 'var(--teal)', (l, s) => s === 'queued' || s === 'parked'],
+    failed: ['Needs a look', 'var(--orange)', (l, s) => !l.inactive && (s === 'failed' || s === 'cancelled' || Number(l.files_failed) > 0)],
+    never: ['Not backed up yet', 'var(--ter)', (l, s) => s === 'never'],
+    inactive: ['Paused in GHL', 'var(--gray)', (l, s) => s === 'inactive'],
+    empty: ['No files', null, (l, s) => s !== 'never' && !Number(l.files_done)],
+    excluded: ['Left out of monthly backup', null, (l) => l.backup_enabled === false],
+  };
+  const matches = (l) => {
+    const s = statusOf(l);
+    if (!(FILTERS[state.filter] || FILTERS.all)[2](l, s)) return false;
+    if (state.q) { const q = state.q.toLowerCase(); if (!(l.name || '').toLowerCase().includes(q) && !l.location_id.toLowerCase().includes(q)) return false; }
+    return true;
+  };
+  function sortVal(l, k) {
+    switch (k) {
+      case 'name': return (l.name || '~').toLowerCase();
+      case 'status': return STATUS_ORDER[statusOf(l)] ?? 9;
+      case 'last': return -(new Date(l.last_job?.finished_at || l.last_job?.created_at || 0).getTime());
+      case 'contacts': return -Number(l.contacts);
+      case 'files': return -Number(l.files_done);
+      case 'bytes': return -Number(l.bytes);
+      case 'failed': return -Number(l.files_failed) - (statusOf(l) === 'failed' ? 1e12 : 0);
+    }
+  }
+  function visible() {
+    const rows = (state.locs || []).filter(matches);
+    rows.sort((a, b) => { const x = sortVal(a, state.sort), y = sortVal(b, state.sort); return (x < y ? -1 : x > y ? 1 : 0) * state.dir || (a.name || '').localeCompare(b.name || ''); });
+    return rows;
+  }
+  const manualSources = () => state.manual || state.sources;
 
-// ---------- push to another sub-account ----------
-const slug=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'').slice(0,40);
-async function renderPushes(loc,fresh){
-  const sec=$('#pushsec');if(!sec||state.sel!==loc)return;
-  if(fresh||!sec.querySelector('#pushForm')){
-    const me=state.locs.find(l=>l.location_id===loc);
-    const targets=state.locs.filter(l=>l.location_id!==loc&&!l.inactive).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-    const pkgs=await api(`/api/packages?locationId=${loc}`);
-    sec.innerHTML=`<span class="gl">Push to another sub-account</span>
-      <div class="hint" style="margin:0 0 10px">Copies contacts and their documents into the target through the API — matched by contact, not by folder name. The source stays untouched. Re-pushing updates instead of duplicating.</div>
-      <div id="pushForm" class="pushform">
-        <label class="field">Target sub-account<select id="pushTarget"><option value="">— choose —</option>${targets.map(t=>`<option value="${t.location_id}">${esc(t.name||t.location_id)}</option>`).join('')}</select></label>
-        <label class="field">What to push<select id="pushScope"><option value="all">Whole location · ${fmtN(me?.contacts)} contacts</option>${pkgs.filter(p=>p.status==='done').map(p=>`<option value="${p.id}">Package #${p.id} · ${fmtN(p.contact_count)} contacts</option>`).join('')}</select></label>
-        <label class="field">Tag added to pushed contacts<input id="pushTag" value="vault-push:${slug(me?.name||loc)}"></label>
-        <div class="checks" style="width:100%"><label><input type="checkbox" id="pushDocs" checked> Documents</label><label><input type="checkbox" id="pushCustom" checked> Custom field values</label><label><input type="checkbox" id="pushOpps"> Opportunities (pipelines matched by name)</label></div>
-        <div class="gb" style="width:100%"><button class="btn" id="pushPreview">Preview</button><button class="btn primary" id="pushStart" disabled>Start push</button><span id="pushMsg" class="dim" style="font-size:12px;align-self:center"></span></div>
+  // ---------- running-job progress ----------
+  function progInfo(l) {
+    const p = l.last_job?.progress || {}; const srcs = Object.keys(p);
+    const doneN = srcs.filter((k) => p[k].status === 'done').length;
+    const act = srcs.find((k) => p[k].status && p[k].status !== 'done' && p[k].status !== 'pending') || srcs[doneN];
+    const v = act ? p[act] : null; let ratio = null, txt = 'starting';
+    if (v) {
+      if (v.candidatesTotal && v.fetched != null) { ratio = v.fetched / v.candidatesTotal; txt = `${N(v.fetched)} of ${N(v.candidatesTotal)} with files`; }
+      else if (v.contactsSeen != null) { ratio = Number(l.contacts) ? Math.min(v.contactsSeen / Number(l.contacts), 1) : null; txt = `${N(v.contactsSeen)} contacts read`; }
+      else if (v.filesFound != null) txt = `${N(v.filesFound)} files found`;
+      else if (v.fetched != null) txt = `${N(v.fetched)} saved`;
+      else txt = v.status || 'working';
+    }
+    const last = Math.max(0, ...srcs.map((k) => (p[k].at ? new Date(p[k].at).getTime() : 0)));
+    const silent = last ? (Date.now() - last) / 60000 : null;
+    return { act, txt, ratio, doneN, total: srcs.length, silent };
+  }
+
+  // ---------- one row ----------
+  function rowHtml(l) {
+    const s = statusOf(l), j = l.last_job, ff = Number(l.files_failed);
+    let sub, end;
+    const st = (cls, icon, label) => `<span class="st ${cls}">${I(icon)}<span class="hide-sm">${label}</span></span>`;
+    if (s === 'running') {
+      const p = progInfo(l);
+      sub = `Backing up${p.act ? ' · ' + esc(srcName(p.act)) : ''} · ${p.txt}${p.silent != null && p.silent > 15 ? ` · <span class="w">no progress for ${Math.round(p.silent)}m</span>` : ''}`;
+      end = p.ratio != null ? `<span class="prog"><i style="width:${Math.round(p.ratio * 100)}%"></i></span><span class="pct">${Math.round(p.ratio * 100)}%</span>` : `<span class="spin"></span><span class="st run hide-sm">Step ${Math.min(p.doneN + 1, p.total)} of ${p.total}</span>`;
+    } else if (s === 'parked') {
+      sub = `Reached GHL's daily limit · continues ${DT(j.not_before)}`; end = st('warn', 'clock', 'Paused');
+    } else if (s === 'queued') {
+      sub = `Waiting to start${j.trigger === 'scheduled' ? ' · monthly backup' : ''}`; end = st('wait', 'clock', 'Waiting');
+    } else if (s === 'failed' || s === 'cancelled') {
+      sub = `${s === 'failed' ? 'Stopped with a problem' : 'Stopped'} · ${when(j.finished_at || j.created_at)}${Number(l.files_done) ? ' · ' + fmtB(l.bytes) : ''}`; end = st('warn', 'alert', 'Needs a look');
+    } else if (s === 'done') {
+      sub = `${when(j.finished_at || j.created_at)} · ${fmtB(l.bytes)} · ${N(l.files_done)} files`;
+      if (ff) { sub += ` · <span class="w">${N(ff)} couldn't be saved</span>`; end = st('warn', 'alert', 'Needs a look'); } else end = st('ok', 'check', 'Backed up');
+    } else if (s === 'inactive') {
+      sub = 'Paused or turned off in GHL'; end = st('off', 'pause', 'Skipped');
+    } else {
+      sub = 'Not backed up yet'; end = l.backup_enabled === false ? st('off', 'pause', 'Skipped') : st('off', 'clock', 'Not yet');
+    }
+    if (l.backup_enabled === false && s !== 'inactive') sub += ' · left out of monthly backup';
+    return `${RGS.avatarHtml(l.name || l.location_id)}<div class="main"><b>${esc(l.name || 'Unnamed sub-account')}</b><span class="sub">${sub}</span></div><span class="end">${end}<span class="chev">${I('right')}</span></span>`;
+  }
+
+  // ---------- overview ----------
+  function renderOverview() {
+    const L = state.locs || [];
+    const cnt = (k) => L.filter((l) => FILTERS[k][2](l, statusOf(l))).length;
+    const bytes = L.reduce((a, l) => a + Number(l.bytes || 0), 0), files = L.reduce((a, l) => a + Number(l.files_done || 0), 0), contacts = L.reduce((a, l) => a + Number(l.contacts || 0), 0);
+    const n = L.length || 1;
+    const bad = L.filter((l) => ['failed', 'cancelled'].includes(statusOf(l))).length;
+    const segs = [['Backed up', L.filter((l) => statusOf(l) === 'done').length, 'var(--green)'], ['Backing up', cnt('running'), 'var(--blue)'], ['Waiting', cnt('queued'), 'var(--teal)'],
+      ['Stopped', bad, 'var(--orange)'], ['Not yet', cnt('never'), 'var(--ter)'], ['Paused in GHL', cnt('inactive'), 'var(--gray)']];
+    $('overall').innerHTML = `<div class="grp card storage">
+        <div class="top"><b>${fmtB(bytes)} backed up</b><span class="sec">${N(L.length)} sub-account${L.length === 1 ? '' : 's'} · ${short(files)} files · ${short(contacts)} contacts</span></div>
+        <div class="meter lg">${segs.map(([k, v, c]) => (v ? `<i style="width:${(v / n) * 100}%;background:${c}" title="${N(v)} ${k.toLowerCase()}"></i>` : '')).join('')}</div>
+        <div class="lg2">${segs.filter((x) => x[1]).map(([k, v, c]) => `<span><i class="dot" style="background:${c}"></i>${k} <b>${N(v)}</b></span>`).join('')}</div>
+      </div>${scheduleFoot()}`;
+    const fbtn = $('overall').querySelector('[data-open-sched]'); if (fbtn) fbtn.onclick = (e) => { e.preventDefault(); openSchedule(); };
+    $('chips').innerHTML = Object.entries(FILTERS).map(([k, [label, color]]) => { const c = cnt(k); if (!c && k !== 'all' && state.filter !== k) return ''; return `<button class="chip${state.filter === k ? ' on' : ''}" data-filter="${k}">${color ? `<i class="dot" style="background:${color}"></i>` : ''}${label} <span class="n">${N(c)}</span></button>`; }).join('');
+    renderMenu();
+  }
+  function scheduleFoot() {
+    const b = state.backup; if (!b) return '';
+    const s = b.schedule, l = s.last;
+    const hr = new Date(2000, 0, 1, s.hour).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const sched = s.enabled ? `Backs up on day ${s.day} of every month at ${hr} (${esc(b.tz)}) · ${s.mode === 'full' ? 'everything again' : 'only what changed'}` : 'Monthly backup is off';
+    const last = l ? ` · last run ${DT(l.at)} (${l.trigger === 'scheduled' ? 'monthly' : 'by you'}): ${N(l.queued)} started${l.skipped ? `, ${N(l.skipped)} already busy` : ''}${l.imported?.total != null ? `, ${N(l.imported.imported)} new sub-accounts added` : ''}${l.imported?.elsewhere ? `, ${N(l.imported.elsewhere)} in another account's vault` : ''}${l.imported?.error ? ` · couldn't add new sub-accounts: ${esc(l.imported.error)}` : ''}` : '';
+    return `<div class="foot">${sched}${last} · <a href="#" data-open-sched>Change</a></div>`;
+  }
+  function renderNotes() {
+    const b = state.backup; if (!b) return;
+    const notIn = b.connected.filter((c) => !c.inVault);
+    let html = '';
+    if (!b.connected.length) html = `<div class="note warn">${I('link')}<span>No sub-accounts are connected to your account yet. Connect them on the hub, then add them here.</span><a class="btn sm act" href="${esc((b.hubUrl || V.HUB) + '/app#connect')}">Connect</a></div>`;
+    else if (notIn.length && (state.locs || []).length) html = `<div class="note">${I('info')}<span>${N(notIn.length)} connected sub-account${notIn.length === 1 ? " isn't" : "s aren't"} in the vault yet.</span><button class="btn sm tinted act" data-act="add">Add</button></div>`;
+    $('notes').innerHTML = html;
+  }
+
+  // ---------- list ----------
+  function renderList() {
+    const box = $('rows');
+    if (!state.locs) return;
+    document.body.classList.toggle('is-empty', !state.locs.length);
+    if (!state.locs.length) {
+      box.className = '';
+      box.innerHTML = `<div class="empty">${RGS.glyph('database', '--t-slate')}<b>Your vault is empty</b>Add the sub-accounts you want backed up. Their files, recordings and documents get copied to your own storage.
+        <div style="margin-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><button class="btn lg" data-act="importAll">Add all connected sub-accounts</button><button class="btn tinted lg" data-act="add">Choose one</button></div></div>`;
+      $('more').innerHTML = ''; $('listTitle').textContent = 'Sub-accounts'; return;
+    }
+    box.className = 'grp card';
+    const rows = visible(); const shown = rows.slice(0, PAGE * state.page);
+    $('listTitle').textContent = rows.length === state.locs.length ? `Sub-accounts · ${N(rows.length)}` : `${N(rows.length)} of ${N(state.locs.length)} sub-accounts`;
+    if (!rows.length) { box.innerHTML = `<div class="empty">${RGS.glyph('search', '--t-gray')}<b>No matches</b>${state.q ? `Nothing matches “${esc(state.q)}”.` : 'No sub-accounts in this group.'}</div>`; $('more').innerHTML = ''; return; }
+    if (box.querySelector('.empty')) box.innerHTML = '';
+    const seen = new Set(); let cursor = null;
+    for (const l of shown) {
+      seen.add(l.location_id);
+      const html = rowHtml(l);
+      let el = box.querySelector(`.li[data-loc="${CSS.escape(l.location_id)}"]`);
+      if (!el) { el = document.createElement('div'); el.className = 'li click'; el.dataset.loc = l.location_id; el.innerHTML = html; el.dataset.html = html; }
+      else if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
+      el.classList.toggle('sel', state.sel === l.location_id); el.classList.toggle('off', statusOf(l) === 'inactive');
+      if (cursor ? cursor.nextSibling !== el : box.firstChild !== el) box.insertBefore(el, cursor ? cursor.nextSibling : box.firstChild);
+      cursor = el;
+    }
+    box.querySelectorAll('.li[data-loc]').forEach((r) => { if (!seen.has(r.dataset.loc)) r.remove(); });
+    $('more').innerHTML = rows.length > shown.length ? `<button class="btn tinted" id="moreRows">Show ${N(Math.min(PAGE, rows.length - shown.length))} more · ${N(rows.length - shown.length)} left</button>` : '';
+  }
+  function skeleton() {
+    $('rows').innerHTML = Array.from({ length: 7 }, (_, i) => `<div class="skrow"><span class="av"></span><div style="flex:1"><div class="skel" style="width:${28 + (i * 13) % 30}%;margin-bottom:7px"></div><div class="skel" style="width:${40 + (i * 7) % 30}%;height:10px"></div></div></div>`).join('');
+  }
+
+  let loading = false;
+  async function load() {
+    if (loading) return; loading = true;
+    try {
+      const r = await fetch('/api/locations', { credentials: 'same-origin' });
+      if (r.status === 401 || r.status === 402) { const d = await r.json().catch(() => ({})); if (d.login || d.subscribe) location.href = d.login || d.subscribe; return; }
+      if (!r.ok) throw new Error(r.status); const locs = await r.json(); if (!Array.isArray(locs)) throw new Error('bad payload');
+      state.locs = locs;
+    } catch (e) {
+      if (!state.locs) $('rows').innerHTML = `<div class="empty">${RGS.glyph('alert', '--t-orange')}<b>Couldn't load your vault</b>Trying again in a few seconds.</div>`;
+      loading = false; return;
+    }
+    renderOverview(); renderNotes(); renderList(); if (state.sel) renderInsp();
+    loading = false;
+  }
+  async function loadBackup() {
+    const b = await api('/api/backup'); if (!b || b.error || !b.schedule) return;
+    state.backup = b; state.sources = b.sources || [];
+    if (!state.manual) { try { const m = JSON.parse(ls('vaultManualSrc') || 'null'); if (Array.isArray(m)) state.manual = m.filter((x) => state.sources.includes(x)); } catch {} }
+    if (state.locs) { renderOverview(); renderNotes(); if (state.sel) renderInsp(); }
+  }
+
+  // ---------- inspector ----------
+  const ins = { loc: null, jobs: [], pool: null, pkgs: [], pushes: [], at: 0, openJobs: new Set(), showAll: false };
+  function selectLoc(id, { scroll } = {}) {
+    state.sel = id; ls('vaultSel', id || '');
+    document.querySelectorAll('#rows .li[data-loc]').forEach((el) => el.classList.toggle('sel', el.dataset.loc === id));
+    if (!id) { $('split').classList.remove('has-insp'); $('insp').innerHTML = ''; ins.loc = null; return; }
+    if (scroll) document.querySelector(`#rows .li[data-loc="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' });
+    renderInsp();
+  }
+  function renderInsp() {
+    const l = (state.locs || []).find((x) => x.location_id === state.sel);
+    if (!l) { if (state.locs) selectLoc(null); return; }
+    $('split').classList.add('has-insp');
+    const box = $('insp');
+    if (ins.loc !== l.location_id) {
+      ins.loc = l.location_id; ins.jobs = []; ins.pool = null; ins.pkgs = []; ins.pushes = []; ins.at = 0; ins.openJobs = new Set(); ins.showAll = false;
+      box.innerHTML = `<div id="iTop"></div><div id="iHist"></div><div id="iPkgs"></div><div id="iPush"></div><div id="iDanger"></div>`;
+      box.scrollTop = 0;
+    }
+    const s = statusOf(l), j = l.last_job, ff = Number(l.files_failed);
+    const running = j && ['running', 'queued'].includes(j.status) && s !== 'parked';
+    const b = state.backup?.schedule;
+    const hr = b ? new Date(2000, 0, 1, b.hour).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+    const qa = [];
+    if (running) qa.push(`<button data-cancel="${j.id}">${I('pause')}Stop</button>`);
+    else if (s === 'parked') qa.push(`<button data-resume="${j.id}" title="GHL allows 200,000 requests per sub-account per day. This backup reached it and is waiting for the reset.">${I('play')}Try now</button>`);
+    else qa.push(`<button data-run="${esc(l.location_id)}" title="Copy everything again from the selected sources">${I('refresh')}Back up</button>`);
+    if (!running && j && j.status === 'done') qa.push(`<button data-sync="${esc(l.location_id)}" title="Only contacts changed since the last finished backup">${I('bolt')}New only</button>`);
+    if (j && ['cancelled', 'failed'].includes(j.status)) qa.push(`<button data-resume="${j.id}">${I('play')}Resume</button>`);
+    qa.push(`<button data-download="location">${I('download')}Download</button>`);
+    if (qa.length < 4) qa.push(`<a href="${V.ghlLocationUrl(l.location_id)}" target="_blank" rel="noopener">${I('external')}Open GHL</a>`);
+    const notes = [];
+    if (l.inactive) notes.push(`<div class="note warn">${I('alert')}<span>GHL won't give access to this sub-account because it's paused or turned off, so it can't be backed up. It's been left out of the monthly backup. Turn it back on in GHL and press Back up, or remove it below.</span></div>`);
+    if (s === 'parked') notes.push(`<div class="note warn">${I('clock')}<span>This sub-account used its 200,000 GHL requests for today (big accounts need one per contact on a full backup). It keeps its place and carries on by itself after ${DT(j.not_before)}.</span></div>`);
+    if (ff) notes.push(`<div class="note warn">${I('alert')}<span>${N(ff)} file${ff === 1 ? '' : 's'} couldn't be saved.</span><button class="btn sm tinted act" data-failures="1">See why</button></div>`);
+    const p = j && j.status === 'running' ? progInfo(l) : null;
+    const top = `<div class="close"><span></span><button class="btn plain" id="inspClose">Done</button></div>
+      <div class="insp-hero">${RGS.avatarHtml(l.name || l.location_id, 'xl')}<h2>${esc(l.name || 'Unnamed sub-account')}</h2>
+        <p>${fmtB(l.bytes)} · ${N(l.files_done)} files · ${N(l.contacts)} contacts</p>
+        <span class="mono id copyable" data-copy="${esc(l.location_id)}" data-what="Location ID" title="Copy location ID">${esc(l.location_id)}</span>
+        <div class="qa">${qa.join('')}</div></div>
+      ${p ? `<div class="grp card" style="padding:12px 14px"><div style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px"><b style="font-weight:600">Backing up now</b><span class="sec">Step ${Math.min(p.doneN + 1, p.total)} of ${p.total}</span></div>
+        <div class="sec" style="font-size:12.5px;margin:2px 0 8px">${esc(srcName(p.act || ''))} · ${p.txt}${p.silent != null ? ` · ${p.silent > 15 ? `<span style="color:var(--orange)">no progress for ${Math.round(p.silent)}m</span>` : 'updated ' + (p.silent < 1 ? 'just now' : Math.round(p.silent) + 'm ago')}` : ''}</div>
+        <div class="meter" style="margin:0"><i style="width:${p.ratio != null ? Math.round(p.ratio * 100) : Math.round((p.doneN / Math.max(1, p.total)) * 100)}%;background:var(--blue)"></i></div></div>` : ''}
+      ${notes.join('')}
+      <div class="grp card">
+        <div class="fr"><div class="lbl"><b>Monthly backup</b><span class="sec">${l.inactive ? 'Skipped while paused in GHL' : b ? (b.enabled ? `Day ${b.day} of every month, ${hr}` : 'The monthly schedule is off') : '&nbsp;'}</span></div><div class="ctl"><label class="sw" title="Include in the monthly backup"><input type="checkbox" data-bk="${esc(l.location_id)}" ${l.backup_enabled !== false ? 'checked' : ''}><i></i></label></div></div>
+        <div class="fr click" data-act="schedule"><div class="lbl"><b>What gets copied</b><span class="sec">${N(manualSources().length)} of ${N(state.sources.length)} sources when you press Back up</span></div><div class="ctl"><span class="chev">${I('right')}</span></div></div>
+      </div>
+      <div class="grp card">
+        <a class="li click" href="/analytics.html?loc=${encodeURIComponent(l.location_id)}">${RGS.glyph('folder', '--t-orange')}<div class="main"><b>Documents</b><span class="sub">Breakdowns, filters and custom exports</span></div><span class="end"><span class="chev">${I('right')}</span></span></a>
+        <a class="li click" href="/usage.html?loc=${encodeURIComponent(l.location_id)}">${RGS.glyph('users', '--t-green')}<div class="main"><b>Team usage</b><span class="sub">Messages, calls and deals per user</span></div><span class="end"><span class="chev">${I('right')}</span></span></a>
+        <div class="li click" data-download="location">${RGS.glyph('download', '--t-blue')}<div class="main"><b>Download files</b><span class="sub">Zip parts or a link to send someone</span></div><span class="end"><span class="chev">${I('right')}</span></span></div>
+        <a class="li click" href="/api/locations/${encodeURIComponent(l.location_id)}/manifest.csv">${RGS.glyph('list', '--t-gray')}<div class="main"><b>File list (CSV)</b><span class="sub">Which file belongs to which contact</span></div><span class="end">${I('download')}</span></a>
+        ${ff ? `<div class="li click" data-retry="${j?.id || ''}">${RGS.glyph('refresh', '--t-orange')}<div class="main"><b>Try failed files again</b><span class="sub">${N(ff)} file${ff === 1 ? '' : 's'} couldn't be saved last time</span></div><span class="end"><span class="chev">${I('right')}</span></span></div>` : ''}
+      </div>`;
+    const t = $('iTop'); if (t.dataset.html !== top) { t.innerHTML = top; t.dataset.html = top; }
+    $('iDanger').innerHTML = `<div class="gh">Danger zone</div><div class="grp card">
+      <div class="li click flush" data-reset="${esc(l.location_id)}"><div class="main"><b class="danger-t">Reset data</b><span class="sub">Forget backups, file records and packages</span></div></div>
+      <div class="li click flush" data-del="${esc(l.location_id)}"><div class="main"><b class="danger-t">Remove from vault</b><span class="sub">Reset and stop tracking this sub-account</span></div></div></div>`;
+    if (Date.now() - ins.at > 8000) loadInspExtras(l.location_id);
+    else { renderHistory(l); renderPkgs(l); renderPushes(l); }
+  }
+  async function loadInspExtras(loc) {
+    ins.at = Date.now();
+    const [jobs, pool, pkgs, pushes] = await Promise.all([api(`/api/jobs?locationId=${encodeURIComponent(loc)}`), api(`/api/locations/${encodeURIComponent(loc)}/pool`), api(`/api/packages?locationId=${encodeURIComponent(loc)}`), api(`/api/pushes?locationId=${encodeURIComponent(loc)}`)]);
+    if (ins.loc !== loc) return;
+    ins.jobs = Array.isArray(jobs) ? jobs : []; ins.pool = pool && !pool.error ? pool : null; ins.pkgs = Array.isArray(pkgs) ? pkgs : []; ins.pushes = Array.isArray(pushes) ? pushes : [];
+    const l = (state.locs || []).find((x) => x.location_id === loc); if (!l) return;
+    renderHistory(l); renderPkgs(l); renderPushes(l);
+  }
+  const setHtml = (el, html) => { if (el && el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; } };
+
+  function srcLine(k, v) {
+    const bits = [];
+    if (v.contactsSeen != null) bits.push(`${N(v.contactsSeen)} contacts read`);
+    if (v.candidatesTotal != null) bits.push(`${N(v.candidatesTotal)} with files`);
+    if (v.fetched != null) bits.push(`${N(v.fetched)} saved`);
+    if (v.filesFound != null) bits.push(`${N(v.filesFound)} files found`);
+    if (v.users != null) bits.push(`${v.users} users`);
+    if (v.mode) bits.push(`mode ${esc(v.mode)}`);
+    if (v.at) bits.push(ago(v.at));
+    const st = { done: 'done', running: 'running', failed: 'failed', paused: 'paused', pending: 'waiting' }[v.status] || v.status || 'waiting';
+    return `<div class="srcrow"><span style="min-width:0"><b>${esc(srcName(k))}</b> · ${esc(st)}${bits.length ? ' · ' + bits.join(' · ') : ''}${v.note ? ' · ' + esc(v.note) : ''}${v.error ? ` · <span class="e">${esc(v.error)}</span>` : ''}</span></div>`;
+  }
+  function renderHistory(l) {
+    const jobs = ins.jobs;
+    if (!jobs.length) { setHtml($('iHist'), `<div class="gh">History</div><div class="grp card"><div class="li flush sec">${l.last_job ? '<span class="spin"></span>&nbsp;Loading…' : 'Not backed up yet.'}</div></div>`); return; }
+    const list = ins.showAll ? jobs : jobs.slice(0, 6);
+    const ev = (j) => {
+      const parked = j.status === 'queued' && j.not_before && new Date(j.not_before) > Date.now();
+      const col = parked ? 'var(--orange)' : { done: 'var(--green)', running: 'var(--blue)', queued: 'var(--teal)', failed: 'var(--red)', cancelled: 'var(--orange)' }[j.status] || 'var(--gray)';
+      const d = new Date(j.finished_at || j.started_at || j.created_at);
+      const day = d.toLocaleDateString([], { month: 'long', day: 'numeric', ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}) });
+      const title = j.status === 'running' ? 'Backing up now' : parked ? 'Paused for GHL’s daily limit' : j.status === 'queued' ? 'Waiting to start' : j.status === 'failed' ? `${day} · stopped with a problem` : j.status === 'cancelled' ? `${day} · stopped` : day;
+      const kind = j.trigger === 'scheduled' ? 'Monthly backup' : j.since ? 'New changes only' : 'Full backup';
+      const sub = `${kind} · ${N((j.sources || []).length)} source${(j.sources || []).length === 1 ? '' : 's'}${j.status === 'done' || j.status === 'failed' || j.status === 'cancelled' ? ' · ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}${parked ? ' · continues ' + DT(j.not_before) : ''}`;
+      const prog = Object.entries(j.progress || {});
+      const open = ins.openJobs.has(j.id) || j.status === 'running';
+      return `<div class="ev"><span class="dt" style="background:${col}"></span><b>${title}</b><div class="s2">${sub}</div>
+        ${prog.length || j.error ? `<details data-job="${j.id}"${open ? ' open' : ''}><summary>${open ? 'Hide details' : 'Details'}</summary>${prog.map(([k, v]) => srcLine(k, v)).join('')}${j.error && j.error !== 'inactive' ? `<div class="srcrow"><span class="e">${esc(j.error)}</span></div>` : ''}</details>` : ''}</div>`;
+    };
+    setHtml($('iHist'), `<div class="gh">History<span class="end">${jobs.length > 6 ? `<a href="#" data-act="allJobs">${ins.showAll ? 'Show less' : 'Show all ' + jobs.length}</a>` : ''}</span></div><div class="tl">${list.map(ev).join('')}</div>`);
+  }
+  function renderPkgs(l) {
+    const pool = ins.pool, loc = l.location_id;
+    if (!pool) { setHtml($('iPkgs'), ''); return; }
+    const pk = ins.pkgs.map((p) => {
+      const pill = { done: '<span class="pill ok">Ready</span>', running: '<span class="pill blue">Building</span>', queued: '<span class="pill">Queued</span>', failed: '<span class="pill bad">Failed</span>' }[p.status] || `<span class="pill">${esc(p.status)}</span>`;
+      const sub = p.status === 'done' ? `${N(p.contact_count)} contacts · ${N(p.file_count)} files` : `${N(p.contact_count)} contacts · ${N(p.progress.copied || 0)} of ${N(p.progress.total || 0)} copied`;
+      return `<div class="li stack">${RGS.glyph(p.locked === false ? 'download' : 'folder', p.locked === false ? '--t-blue' : '--t-purple')}<div class="main"><b>${p.locked === false ? 'Export' : 'Package'} #${p.id}${p.label ? ' · ' + esc(p.label) : ''}</b><span class="sub">${sub}${p.progress.failed ? ` · <span class="w">${N(p.progress.failed)} failed</span>` : ''}</span></div><span class="end">${pill}</span>
+        <div class="acts">${p.status === 'done' ? `<button class="btn sm tinted" data-download="package:${p.id}">Files</button><a class="btn sm tinted" href="/api/packages/${p.id}/contacts.csv">Contacts CSV</a><a class="btn sm tinted" href="/api/packages/${p.id}/manifest.csv">File list</a><button class="btn sm tinted" data-pushpkg="${p.id}" title="Copy this package's contacts and documents into another sub-account">Push</button>` : ''}
+        <button class="btn sm tinted danger" data-dissolve="${p.id}" data-locked="${p.locked === false ? 0 : 1}" title="${p.locked === false ? 'Delete this export record' : 'Release these contacts back into the pool'}">${p.locked === false ? 'Remove' : 'Release'}</button></div></div>`;
+    }).join('');
+    setHtml($('iPkgs'), `<div class="gh">Rep packages<span class="end">${N(pool.available)} of ${N(pool.total)} free</span></div>
+      <div class="chips">${pool.sizes.map((s) => `<button class="chip" data-pkg="${esc(loc)}" data-size="${s}" ${s > pool.available ? 'disabled title="Not enough contacts left to package"' : `title="Package ${N(s)} random contacts that haven't been packaged yet"`}>${I('plus')}${s >= 1000 ? s / 1000 + 'k' : s}</button>`).join('')}<a class="chip" href="/analytics.html?loc=${encodeURIComponent(loc)}" title="Filter contacts, pick columns and documents, then package">Custom…</a></div>
+      ${pk ? `<div class="grp card">${pk}</div>` : '<div class="foot" style="margin:0 0 18px;padding:0 4px">Hand a rep a set of contacts with their documents. Packaged contacts aren’t handed out twice.</div>'}`);
+  }
+  function renderPushes(l) {
+    const loc = l.location_id;
+    const rows = ins.pushes.map((p) => {
+      const pr = p.progress || {}; const st = p.status === 'queued' && p.not_before && new Date(p.not_before) > Date.now() ? 'parked' : p.status;
+      const pill = { done: '<span class="pill ok">Done</span>', running: '<span class="pill blue">Copying</span>', queued: '<span class="pill">Queued</span>', parked: '<span class="pill warn">Daily limit</span>', failed: '<span class="pill bad">Failed</span>', cancelled: '<span class="pill warn">Stopped</span>' }[st] || `<span class="pill">${esc(st)}</span>`;
+      const dir = p.source_location_id === loc ? `To ${esc(p.target_name || p.target_location_id)}` : `From ${esc(p.source_name || p.source_location_id)}`;
+      return `<div class="li stack">${RGS.glyph('upload', '--t-cyan')}<div class="main"><b>${dir}${p.package_id ? ` · package #${p.package_id}` : ''}</b>
+        <span class="sub">${N(pr.contactsDone)} of ${N(pr.total)} contacts · ${N(pr.filesDone)} files${pr.filesFailed ? ` · <span class="w">${N(pr.filesFailed)} failed</span>` : ''}${pr.oppsDone ? ` · ${N(pr.oppsDone)} opportunities` : ''}${pr.note && st !== 'done' ? ` · ${esc(pr.note)}` : ''}${p.error ? ` · <span class="w">${esc(p.error)}</span>` : ''}</span></div><span class="end">${pill}</span>
+        <div class="acts">${['queued', 'running'].includes(p.status) && st !== 'parked' ? `<button class="btn sm tinted" data-pushcancel="${p.id}">Stop</button>` : ''}${['cancelled', 'failed'].includes(p.status) || st === 'parked' ? `<button class="btn sm tinted" data-pushresume="${p.id}">${st === 'parked' ? 'Try now' : 'Resume'}</button>` : ''}${p.status !== 'running' ? `<button class="btn sm tinted danger" data-pushdel="${p.id}">Remove</button>` : ''}
+        ${pr.errors?.length ? `<details style="flex-basis:100%"><summary class="sec" style="font-size:12px;cursor:pointer">${pr.errors.length} issue${pr.errors.length === 1 ? '' : 's'}</summary><div class="issues">${esc(pr.errors.slice(0, 50).join('\n'))}</div></details>` : ''}</div></div>`;
+    }).join('');
+    setHtml($('iPush'), `<div class="gh">Copy to another sub-account<span class="end"><a href="#" data-pushnew="1">New copy…</a></span></div>
+      ${rows ? `<div class="grp card">${rows}</div>` : '<div class="foot" style="margin:0 0 18px;padding:0 4px">Copies contacts and their documents into another sub-account. This one isn’t changed.</div>'}`);
+  }
+
+  // ---------- sheets ----------
+  function openSchedule() {
+    const b = state.backup; if (!b) return RGS.toast('Still loading, try again in a moment', { error: true });
+    const s = b.schedule, man = manualSources();
+    const hours = Array.from({ length: 24 }, (_, h) => `<option value="${h}"${h === s.hour ? ' selected' : ''}>${new Date(2000, 0, 1, h).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</option>`).join('');
+    const days = Array.from({ length: 28 }, (_, i) => `<option value="${i + 1}"${i + 1 === s.day ? ' selected' : ''}>Day ${i + 1}</option>`).join('');
+    const srcRows = (attr, on) => state.sources.map((k) => `<div class="fr"><div class="lbl"><b>${esc(srcName(k))}</b><span class="sec">${esc((V.SOURCES[k] || [, ''])[1])}</span></div><div class="ctl"><label class="sw"><input type="checkbox" ${attr} value="${esc(k)}" ${on.includes(k) ? 'checked' : ''}><i></i></label></div></div>`).join('');
+    const box = V.openSheet(`${V.head('calendar', '--t-blue', 'Backup schedule', 'One schedule for every sub-account in your vault')}
+      <div class="sheet-bd">
+        <div class="grp">
+          <div class="fr"><div class="lbl"><b>Back up every month</b></div><div class="ctl"><label class="sw"><input type="checkbox" id="bkEnabled" ${s.enabled ? 'checked' : ''}><i></i></label></div></div>
+          <div class="fr"><div class="lbl"><b>When</b><span class="sec">${esc(b.tz)} time</span></div><div class="ctl"><select id="bkDay" style="width:96px">${days}</select><select id="bkHour" style="width:110px">${hours}</select></div></div>
+          <div class="fr"><div class="lbl"><b>What to copy</b></div><div class="ctl"><select id="bkMode" style="width:210px"><option value="incremental"${s.mode !== 'full' ? ' selected' : ''}>Only what changed</option><option value="full"${s.mode === 'full' ? ' selected' : ''}>Everything again</option></select></div></div>
+          <div class="fr"><div class="lbl"><b>Add new sub-accounts first</b><span class="sec">Picks up anything newly connected on the hub</span></div><div class="ctl"><label class="sw"><input type="checkbox" id="bkImport" ${s.importFirst ? 'checked' : ''}><i></i></label></div></div>
+        </div>
+        <div class="gh" style="margin-top:18px">Monthly backup copies</div>
+        <div class="grp scrolly">${srcRows('data-bksrc', s.sources)}</div>
+        <div class="gh" style="margin-top:18px">When you press Back up</div>
+        <div class="grp scrolly">${srcRows('data-mansrc', man)}</div>
+        <p class="sec" style="font-size:12px;margin:8px 4px 0">Used for Back up on one sub-account and for backing up the whole list from the menu.</p>
+      </div>
+      <div class="sheet-ft"><button class="btn tinted" data-close>Cancel</button><button class="btn" id="bkSave">Save</button></div>`, { wide: true });
+    box.querySelector('#bkSave').onclick = async () => {
+      state.manual = [...box.querySelectorAll('input[data-mansrc]:checked')].map((i) => i.value); ls('vaultManualSrc', JSON.stringify(state.manual));
+      const r = await api('/api/backup/schedule', { method: 'POST', body: { enabled: box.querySelector('#bkEnabled').checked, day: Number(box.querySelector('#bkDay').value), hour: Number(box.querySelector('#bkHour').value), mode: box.querySelector('#bkMode').value, importFirst: box.querySelector('#bkImport').checked, sources: [...box.querySelectorAll('input[data-bksrc]:checked')].map((i) => i.value) } });
+      if (r.error) return RGS.toast(r.error, { error: true });
+      V.closeSheet(); RGS.toast('Schedule saved'); loadBackup();
+    };
+  }
+  function openAdd() {
+    const b = state.backup; if (!b) return;
+    const notIn = b.connected.filter((c) => !c.inVault);
+    const hub = (b.hubUrl || V.HUB) + '/app#connect';
+    const box = V.openSheet(`${V.head('plus', '--t-cyan', 'Add sub-accounts', `${N(b.connected.length)} connected on the hub · ${N(notIn.length)} not in the vault yet`)}
+      <div class="sheet-bd">
+        ${notIn.length ? `<label for="locId">Sub-account</label><select id="locId"><option value="">Choose a sub-account</option>${notIn.map((c) => `<option value="${esc(c.locationId)}">${esc(c.label || c.locationId)}</option>`).join('')}</select>` : '<p class="sec">Every connected sub-account is already in the vault.</p>'}
+        <p class="sec" style="font-size:12.5px;margin-top:12px">Sub-accounts come from your account on the hub. <a href="${esc(hub)}">Connect more there</a>, one at a time or your whole agency at once.</p>
+      </div>
+      <div class="sheet-ft"><button class="btn tinted" id="addAll" style="margin-right:auto" title="Add every sub-account connected to your hub account">Add all connected</button><button class="btn tinted" data-close>Cancel</button>${notIn.length ? '<button class="btn" id="addLoc">Add</button>' : ''}</div>`);
+    box.querySelector('#addAll').onclick = () => { V.closeSheet(); importAll(); };
+    const add = box.querySelector('#addLoc');
+    if (add) add.onclick = async () => {
+      const id = box.querySelector('#locId').value; if (!id) return RGS.toast('Choose a sub-account', { error: true });
+      add.disabled = true;
+      const r = await api('/api/locations', { method: 'POST', body: { locationId: id } });
+      add.disabled = false;
+      if (r.error) return RGS.toast(r.error, { error: true });
+      V.closeSheet(); RGS.toast(r.warning ? `Added, but ${r.warning.replace(/^saved, but /, '')}` : `Added ${r.name || ''}`, r.warning ? { error: true } : {}); load(); loadBackup();
+    };
+  }
+  async function importAll() {
+    RGS.toast('Adding connected sub-accounts…');
+    const r = await api('/api/locations/import-agency', { method: 'POST' });
+    if (r.error) return RGS.toast(r.error, { error: true });
+    RGS.toast(`${N(r.total)} sub-accounts · ${N(r.imported)} new${r.elsewhere ? ` · ${N(r.elsewhere)} in another account's vault` : ''}`); loadBackup(); load();
+  }
+
+  // Download: zip parts built in storage + share links. Same endpoints as the classic export page.
+  async function openDownload(scope) {
+    const l = (state.locs || []).find((x) => x.location_id === state.sel); if (!l) return;
+    const loc = encodeURIComponent(l.location_id), isPkg = scope.startsWith('package:'), pkg = isPkg ? ins.pkgs.find((p) => 'package:' + p.id === scope) : null;
+    const sub = isPkg ? `${esc(l.name || l.location_id)} · package #${scope.slice(8)}${pkg ? ` · ${N(pkg.file_count)} files` : ''}` : `${esc(l.name || l.location_id)} · ${N(l.files_done)} files · ${fmtB(l.bytes)}`;
+    let alive = true;
+    const box = V.openSheet(`${V.head('download', '--t-blue', 'Download files', sub)}
+      <div class="sheet-bd">
+        <div class="gh">Zip files<span class="end"><a href="#" id="dlPrep">Prepare download</a></span></div>
+        <div class="grp" id="dlParts"><div class="li flush sec"><span class="spin"></span>&nbsp;Loading…</div></div>
+        <p class="sec" style="font-size:12px;margin:-14px 4px 18px">Files are zipped in your storage, then each part downloads straight from it. You can close this while it builds. ${isPkg ? 'Part 1 has contacts.csv and the file list.' : `<a href="/api/locations/${loc}/manifest.csv">File list (CSV)</a>`}</p>
+        <div class="gh">Send to someone</div>
+        <div class="grp"><div class="fr"><div class="lbl"><b>Link works for</b></div><div class="ctl"><select id="shDays" style="width:120px"><option value="1">1 day</option><option value="7" selected>7 days</option><option value="30">30 days</option></select></div></div>
+          <div class="fr"><div class="lbl"><b>Password</b><span class="sec">Recommended</span></div><div class="ctl"><input type="password" id="shPw" placeholder="Optional" style="width:170px" autocomplete="new-password"></div></div></div>
+        <div style="display:flex;justify-content:flex-end;margin:-12px 0 16px"><button class="btn tinted" id="shGo">${I('link')}Create link</button></div>
+        <div id="shList"></div>
+        <p class="sec" style="font-size:12px;margin:0 4px">Prefer a terminal? <a href="/api/locations/${loc}/export?scope=${encodeURIComponent(scope)}" target="_blank" rel="noopener">The classic download page</a> has the rclone command.</p>
+      </div>
+      <div class="sheet-ft"><button class="btn" data-close>Done</button></div>`, { onClose: () => { alive = false; } });
+    async function parts() {
+      const bs = await api(`/api/locations/${loc}/bundles?scope=${encodeURIComponent(scope)}`); if (!alive) return;
+      const el = box.querySelector('#dlParts');
+      if (!Array.isArray(bs)) { el.innerHTML = `<div class="li flush sec">${esc(bs.error || 'Couldn’t load')}</div>`; return; }
+      el.innerHTML = bs.length ? bs.map((b) => `<div class="li flush">${RGS.glyph('file', '--t-gray')}<div class="main"><b>Part ${b.part} of ${b.total_parts}</b><span class="sub">${N(b.file_count)} files${b.bytes ? ' · ' + fmtB(b.bytes) : ''}${b.error ? ' · ' + esc(b.error) : ''}</span></div>
+        <span class="end">${b.url ? `<a class="btn sm" href="${esc(b.url)}">Download</a>` : b.status === 'failed' ? '<span class="pill bad">Failed</span>' : b.status === 'running' ? '<span class="spin"></span><span class="sec">Zipping</span>' : '<span class="pill">Queued</span>'}</span></div>`).join('')
+        : `<div class="li flush sec">Nothing prepared yet. Press Prepare download.</div>`;
+      if (bs.some((b) => b.status !== 'done' && b.status !== 'failed')) setTimeout(() => alive && parts(), 5000);
+    }
+    async function shares() {
+      const ss = await api(`/api/locations/${loc}/shares?scope=${encodeURIComponent(scope)}`); if (!alive || !Array.isArray(ss)) return;
+      box.querySelector('#shList').innerHTML = ss.length ? `<div class="gh">Active links</div><div class="grp">${ss.map((s) => `<div class="code-box"><span class="mono">${esc(s.url)}</span><button class="icon-btn" data-sc="${esc(s.url)}" title="Copy link">${I('copy')}</button><button class="icon-btn" data-revoke="${esc(s.token)}" title="Turn off this link" style="color:var(--red)">${I('trash')}</button></div><div class="sec" style="font-size:12px;padding:0 14px 10px;margin-top:-4px">${s.protected ? 'Password protected · ' : ''}works until ${V.D(s.expires_at)}</div>`).join('')}</div>` : '';
+      box.querySelectorAll('[data-sc]').forEach((b) => b.onclick = () => RGS.copy(b.dataset.sc, 'Link'));
+      box.querySelectorAll('[data-revoke]').forEach((b) => b.onclick = async () => { await api('/api/shares/' + encodeURIComponent(b.dataset.revoke), { method: 'DELETE' }); RGS.toast('Link turned off'); shares(); });
+    }
+    box.querySelector('#dlPrep').onclick = async (e) => {
+      e.preventDefault();
+      const el = box.querySelector('#dlParts');
+      if (el.querySelector('.btn, .pill') && !confirm('Build the zip files again? The current ones are replaced.')) return;
+      const r = await api(`/api/locations/${loc}/bundles`, { method: 'POST', body: { scope } });
+      if (r.error) return RGS.toast(r.error, { error: true });
+      RGS.toast(`Preparing ${N(r.parts)} part${r.parts === 1 ? '' : 's'}`); parts();
+    };
+    box.querySelector('#shGo').onclick = async () => {
+      const r = await api(`/api/locations/${loc}/shares`, { method: 'POST', body: { scope, days: Number(box.querySelector('#shDays').value), password: box.querySelector('#shPw').value } });
+      if (r.error) return RGS.toast(r.error, { error: true });
+      box.querySelector('#shPw').value = '';
+      RGS.copy(r.url, 'Link');
+      setTimeout(() => RGS.toast(r.protected ? 'Link copied. Send the password separately, by text or call.' : 'Link copied. No password, so anyone with it can download.'), 1900);
+      shares();
+    };
+    parts(); shares();
+  }
+
+  async function openFailures() {
+    const loc = state.sel; const l = (state.locs || []).find((x) => x.location_id === loc); if (!l) return;
+    const box = V.openSheet(`${V.head('alert', '--t-orange', 'Files that couldn’t be saved', esc(l.name || loc))}<div class="sheet-bd" id="fBody"><div class="status"><span class="spin"></span>Loading…</div></div>
+      <div class="sheet-ft">${l.last_job ? `<button class="btn tinted" id="fRetry" style="margin-right:auto">Try them again</button>` : ''}<button class="btn" data-close>Done</button></div>`, { wide: true });
+    const r = await api(`/api/locations/${encodeURIComponent(loc)}/failures`);
+    if (r.error) { box.querySelector('#fBody').innerHTML = `<div class="status err">${esc(r.error)}</div>`; return; }
+    box.querySelector('#fBody').innerHTML = `${r.failures.length ? `<div class="grp">${r.failures.map((f) => `<div class="li flush"><div class="main"><b>${esc(f.error || 'Unknown problem')}</b><span class="sub">${esc(srcName(f.source || ''))}${f.field_name ? ' · ' + esc(f.field_name) : ''}${f.sample_url ? ` · <span class="mono">${esc(f.sample_url)}</span>` : ''}</span></div><span class="end"><span class="pill warn">${N(f.n)}</span></span></div>`).join('')}</div>` : '<p class="sec">Nothing failed.</p>'}
+      <p class="sec" style="font-size:12px;margin:0 4px">${N(r.done?.done)} files saved${Number(r.done?.no_size) ? ` · ${N(r.done.no_size)} without a size` : ''}${r.skipped_no_recording ? ` · ${N(r.skipped_no_recording)} calls had no recording to save` : ''}.</p>`;
+    const rt = box.querySelector('#fRetry'); if (rt) rt.onclick = async () => { const x = await api(`/api/jobs/${l.last_job.id}/retry-failed`, { method: 'POST' }); V.closeSheet(); RGS.toast(x.error || 'Trying them again', x.error ? { error: true } : {}); load(); };
+  }
+
+  const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 40);
+  function openPush(pkgId) {
+    const loc = state.sel; const me = (state.locs || []).find((l) => l.location_id === loc); if (!me) return;
+    const targets = state.locs.filter((l) => l.location_id !== loc && !l.inactive).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    const pk = ins.pkgs.filter((p) => p.status === 'done');
+    const box = V.openSheet(`${V.head('upload', '--t-cyan', 'Copy to another sub-account', `From ${esc(me.name || loc)}`)}
+      <div class="sheet-bd">
+        <div class="field"><label for="pushTarget">Copy into</label><select id="pushTarget"><option value="">Choose a sub-account</option>${targets.map((t) => `<option value="${esc(t.location_id)}">${esc(t.name || t.location_id)}</option>`).join('')}</select></div>
+        <div class="field"><label for="pushScope">What to copy</label><select id="pushScope"><option value="all">Whole sub-account · ${N(me.contacts)} contacts</option>${pk.map((p) => `<option value="${p.id}"${String(p.id) === String(pkgId) ? ' selected' : ''}>Package #${p.id} · ${N(p.contact_count)} contacts</option>`).join('')}</select></div>
+        <div class="field"><label for="pushTag">Tag added to copied contacts</label><input type="text" id="pushTag" value="vault-push:${esc(slug(me.name || loc))}"></div>
+        <div class="grp">
+          <div class="fr"><div class="lbl"><b>Documents</b></div><div class="ctl"><label class="sw"><input type="checkbox" id="pushDocs" checked><i></i></label></div></div>
+          <div class="fr"><div class="lbl"><b>Custom field values</b></div><div class="ctl"><label class="sw"><input type="checkbox" id="pushCustom" checked><i></i></label></div></div>
+          <div class="fr"><div class="lbl"><b>Opportunities</b><span class="sec">Pipelines are matched by name</span></div><div class="ctl"><label class="sw"><input type="checkbox" id="pushOpps"><i></i></label></div></div>
+        </div>
+        <p class="sec" style="font-size:12px;margin:-12px 4px 12px">Contacts are matched one by one, so copying again updates them instead of making duplicates.</p>
         <div id="pushPrev"></div>
       </div>
-      <div id="pushList"></div>`;
+      <div class="sheet-ft"><span class="sec" id="pushMsg" style="margin-right:auto;align-self:center;font-size:12.5px"></span><button class="btn tinted" id="pushPreview">Preview</button><button class="btn" id="pushStart" disabled>Start copying</button></div>`, { wide: true });
+    const body = () => { const scope = box.querySelector('#pushScope').value; return { targetLocationId: box.querySelector('#pushTarget').value, ...(scope === 'all' ? { sourceLocationId: loc } : { packageId: Number(scope) }), tag: box.querySelector('#pushTag').value.trim() || null, include: { documents: box.querySelector('#pushDocs').checked, customFields: box.querySelector('#pushCustom').checked, opportunities: box.querySelector('#pushOpps').checked } }; };
+    box.querySelectorAll('select, input').forEach((x) => x.addEventListener('change', () => { box.querySelector('#pushStart').disabled = true; }));
+    box.querySelector('#pushPreview').onclick = async () => {
+      const b = body(); if (!b.targetLocationId) return RGS.toast('Choose where to copy into', { error: true });
+      box.querySelector('#pushMsg').innerHTML = '<span class="spin" style="vertical-align:-2px"></span>&nbsp;Checking the fields there…';
+      const r = await api('/api/pushes/preview', { method: 'POST', body: b });
+      box.querySelector('#pushMsg').textContent = '';
+      if (r.error) return RGS.toast(r.error, { error: true });
+      const calls = r.contacts * 2 + r.files;
+      box.querySelector('#pushPrev').innerHTML = `<div class="tiles" style="grid-template-columns:repeat(auto-fit,minmax(110px,1fr));margin-bottom:12px"><div class="tile"><div class="k">Contacts</div><div class="v">${N(r.contacts)}</div></div><div class="tile"><div class="k">Documents</div><div class="v">${N(r.files)}</div></div><div class="tile"><div class="k">Size</div><div class="v">${fmtB(r.bytes)}</div></div>${b.include.opportunities ? `<div class="tile"><div class="k">Opportunities</div><div class="v">${N(r.opportunities)}</div></div>` : ''}</div>
+        <p class="sec" style="font-size:12px;margin:0 4px 12px">About ${N(calls)} GHL requests in the target. GHL allows 200,000 a day, so this takes about ${Math.max(1, Math.ceil(calls / 200000))} day${calls > 200000 ? 's' : ''}.</p>
+        ${r.fields.length ? `<div class="gh">Custom fields</div><div class="grp preview-fields">${r.fields.map((f) => `<div class="li flush"><div class="main"><b>${esc(f.name)}</b><span class="sub">${esc(f.kind)}</span></div><span class="end"><span class="pill ${/created/.test(f.target) ? 'blue' : /skipped/.test(f.target) ? 'warn' : ''}">${esc(f.target)}</span></span></div>`).join('')}</div>` : '<p class="sec" style="margin:0 4px">No custom fields involved.</p>'}`;
+      box.querySelector('#pushStart').disabled = false;
+    };
+    box.querySelector('#pushStart').onclick = async () => {
+      const b = body(); if (!b.targetLocationId) return RGS.toast('Choose where to copy into', { error: true });
+      const r = await api('/api/pushes', { method: 'POST', body: b });
+      if (r.error) return RGS.toast(r.error, { error: true });
+      V.closeSheet(); RGS.toast(`Copy #${r.id} started`); ins.at = 0; renderInsp();
+    };
   }
-  const list=await api(`/api/pushes?locationId=${loc}`);const el=$('#pushList');if(!el||state.sel!==loc)return;
-  const next=list.map(p=>{const pr=p.progress||{};const st=p.status==='queued'&&p.not_before&&new Date(p.not_before)>Date.now()?'parked':p.status;
-    return `<div class="pkgrow"><span class="pill ${st}">${st==='parked'?'quota wait':st}</span><b>#${p.id}</b><span>${esc(p.source_location_id===loc?'→ '+(p.target_name||p.target_location_id):'← from '+(p.source_name||p.source_location_id))}${p.package_id?` · pkg #${p.package_id}`:''}</span>
-      <span>${fmtN(pr.contactsDone)}/${fmtN(pr.total)} contacts · ${fmtN(pr.filesDone)} files${pr.filesFailed?` · <span class="f">${fmtN(pr.filesFailed)} failed</span>`:''}${pr.oppsDone?` · ${fmtN(pr.oppsDone)} opps`:''}${pr.note&&st!=='done'?` · ${esc(pr.note)}`:''}${p.error?` · <span class="f">${esc(p.error)}</span>`:''}</span>
-      ${['queued','running'].includes(p.status)&&st!=='parked'?`<button class="btn sm" data-pushcancel="${p.id}">Stop</button>`:''}${['cancelled','failed'].includes(p.status)||st==='parked'?`<button class="btn sm" data-pushresume="${p.id}">${st==='parked'?'Try now':'Resume'}</button>`:''}${p.status!=='running'?`<button class="btn sm red" data-pushdel="${p.id}">remove</button>`:''}
-      ${pr.errors?.length?`<details style="width:100%"><summary class="dim" style="font-size:11px;cursor:pointer">${pr.errors.length} issue(s)</summary><pre>${esc(pr.errors.slice(0,50).join('\n'))}</pre></details>`:''}</div>`}).join('');
-  if(el.innerHTML!==next)el.innerHTML=next;
-}
-function pushBody(){const scope=$('#pushScope').value;return{targetLocationId:$('#pushTarget').value,...(scope==='all'?{sourceLocationId:state.sel}:{packageId:Number(scope)}),tag:$('#pushTag').value.trim()||null,include:{documents:$('#pushDocs').checked,customFields:$('#pushCustom').checked,opportunities:$('#pushOpps').checked}}}
-document.addEventListener('click',async e=>{
-  const pp=e.target.closest('button[data-pushpkg]');if(pp){const sc=$('#pushScope');if(sc){sc.value=pp.dataset.pushpkg;$('#pushTarget').focus();$('#pushsec').scrollIntoView({behavior:'smooth'})}return}
-  if(e.target.id==='pushPreview'){const b=pushBody();if(!b.targetLocationId)return toast('Choose a target sub-account');$('#pushMsg').textContent='checking target fields…';
-    const r=await api('/api/pushes/preview',{method:'POST',body:b});if(r.error){$('#pushMsg').textContent='';return toast(r.error)}
-    $('#pushMsg').textContent='';$('#pushStart').disabled=false;
-    $('#pushPrev').innerHTML=`<div class="stats" style="margin-top:4px"><span>contacts<b>${fmtN(r.contacts)}</b></span><span>documents<b>${fmtN(r.files)}</b></span><span>size<b>${fmtB(r.bytes)}</b></span>${b.include.opportunities?`<span>opportunities<b>${fmtN(r.opportunities)}</b></span>`:''}</div>
-      <div class="hint" style="margin:4px 0 6px">≈ ${fmtN(r.contacts*2+r.files)} API calls on the target (200k/day cap → ${Math.max(1,Math.ceil((r.contacts*2+r.files)/200000))} day${(r.contacts*2+r.files)>200000?'s':''}).</div>
-      <div class="kv" style="font-size:12px">${r.fields.map(f=>`<span>${esc(f.name)} <span class="id">${f.kind}</span></span><span class="${/created/.test(f.target)?'acc':/skipped/.test(f.target)?'f':'dim'}">${esc(f.target)}</span>`).join('')||'<span class="dim">no custom fields involved</span>'}</div>`;return}
-  if(e.target.id==='pushStart'){const b=pushBody();if(!b.targetLocationId)return toast('Choose a target sub-account');const tn=$('#pushTarget').selectedOptions[0].textContent;
-    if(!confirm(`Copy these contacts${b.include.documents?' and documents':''} into "${tn}"?\n\nThe source sub-account is not changed.`))return;
-    const r=await api('/api/pushes',{method:'POST',body:b});toast(r.error||`Push #${r.id} queued`);$('#pushStart').disabled=true;$('#pushPrev').innerHTML='';renderPushes(state.sel,false);return}
-  const pc=e.target.closest('button[data-pushcancel]');if(pc){await api(`/api/pushes/${pc.dataset.pushcancel}/cancel`,{method:'POST'});toast('Stopping');renderPushes(state.sel,false);return}
-  const pr=e.target.closest('button[data-pushresume]');if(pr){await api(`/api/pushes/${pr.dataset.pushresume}/resume`,{method:'POST'});toast('Resumed');renderPushes(state.sel,false);return}
-  const pd=e.target.closest('button[data-pushdel]');if(pd){if(!confirm('Remove this push record? (Nothing is deleted in GHL.)'))return;await api(`/api/pushes/${pd.dataset.pushdel}`,{method:'DELETE'});renderPushes(state.sel,false);return}
-});
-// ---------- events ----------
-$('#q').oninput=e=>{state.q=e.target.value.trim();state.page=1;renderTable()};
-$('#sort').onchange=e=>{state.sort=e.target.value;state.dir=1;localStorage.vaultSort=state.sort;renderTable()};
-document.querySelector('thead').onclick=e=>{const th=e.target.closest('th[data-k]');if(!th)return;if(state.sort===th.dataset.k)state.dir=-state.dir;else{state.sort=th.dataset.k;state.dir=1}$('#sort').value=state.sort;localStorage.vaultSort=state.sort;renderTable()};
-$('#chips').onclick=e=>{const c=e.target.closest('.chip');if(!c)return;state.filter=c.dataset.filter;state.page=1;localStorage.vaultFilter=state.filter;renderChips();renderTable()};
-$('#more').onclick=e=>{if(e.target.id==='moreBtn'){state.page++;renderTable()}};
-$('#rows').onclick=e=>{const tr=e.target.closest('tr.loc');if(!tr||e.target.closest('input'))return;state.sel=state.sel===tr.dataset.loc?null:tr.dataset.loc;localStorage.vaultSel=state.sel||'';renderTable();renderDrawer()};
-$('#retryAll').onclick=async()=>{
-  const targets=state.locs.filter(l=>{const s=statusOf(l);return !l.inactive&&(s==='failed'||s==='cancelled'||Number(l.files_failed))});
-  if(!confirm(`Resume/retry ${targets.length} location(s) that failed or have failed files?`))return;
-  let n=0;for(const l of targets){const j=l.last_job;if(!j)continue;if(['failed','cancelled'].includes(j.status))await api(`/api/jobs/${j.id}/resume`,{method:'POST'});else if(Number(l.files_failed))await api(`/api/jobs/${j.id}/retry-failed`,{method:'POST'});n++}
-  toast(`Queued ${n}`);load()};
-$('#runVisible').onclick=async()=>{
-  const targets=visible().filter(l=>!l.inactive&&!['running','queued'].includes(statusOf(l)));
-  if(!targets.length)return toast('Nothing to run');
-  if(!confirm(`Queue a full export (${chosen().join(', ')}) for ${targets.length} location(s)?`))return;
-  for(const l of targets)await api('/api/jobs',{method:'POST',body:{locationId:l.location_id,sources:chosen()}});
-  toast(`Queued ${targets.length}`);load()};
-document.addEventListener('change',async e=>{const c=e.target.closest('input[data-bk]');if(c){await api(`/api/locations/${c.dataset.bk}/backup-enabled`,{method:'POST',body:{enabled:c.checked}});toast(c.checked?'Included in backups':'Excluded from backups');load()}});
-document.addEventListener('click',async e=>{
-  const cp=e.target.closest('[data-copy]');if(cp){navigator.clipboard.writeText(cp.dataset.copy);toast('Copied');return}
-  if(e.target.id==='closeDrawer'){state.sel=null;localStorage.vaultSel='';renderTable();renderDrawer();return}
-  const pb=e.target.closest('button[data-pkg]');
-  if(pb){const r=await api(`/api/locations/${pb.dataset.pkg}/packages`,{method:'POST',body:{size:Number(pb.dataset.size)}});toast(r.error||`Package #${r.id} queued (${r.contact_count} contacts)`);renderPackages(pb.dataset.pkg);return}
-  const db=e.target.closest('button[data-dissolve]');
-  if(db){if(!confirm('Release this package\'s contacts back into the pool?'))return;await api(`/api/packages/${db.dataset.dissolve}`,{method:'DELETE'});toast('Dissolved');renderPackages(state.sel);return}
-  const b=e.target.closest('button');if(!b)return;
-  if(b.dataset.run){await api('/api/jobs',{method:'POST',body:{locationId:b.dataset.run,sources:chosen()}});toast('Queued');load()}
-  if(b.dataset.reset||b.dataset.del){
-    const loc=b.dataset.reset||b.dataset.del, del=!!b.dataset.del;
-    if(!confirm(`${del?'Delete this location and':'Reset'} all its jobs, file records, contacts and packages?`))return;
-    const purgeR2=confirm('Also delete the files already copied into R2? (Cancel = keep them)');
-    const r=await api(`/api/locations/${loc}${del?'':'/reset'}`,{method:del?'DELETE':'POST',body:{purgeR2}});
-    toast(r.error||`${del?'Deleted':'Reset'}${purgeR2?` · ${r.r2Deleted} R2 objects removed`:''}`);if(del){state.sel=null;localStorage.vaultSel=''}load();return}
-  if(b.dataset.sync){const r=await api('/api/jobs',{method:'POST',body:{locationId:b.dataset.sync,sources:chosen(),incremental:true}});toast(r.error||`Sync queued (since ${new Date(r.since).toLocaleString()})`);load()}
-  if(b.dataset.cancel){await api(`/api/jobs/${b.dataset.cancel}/cancel`,{method:'POST'});toast('Stopping after current page');load()}
-  if(b.dataset.resume){await api(`/api/jobs/${b.dataset.resume}/resume`,{method:'POST'});toast('Resumed');load()}
-  if(b.dataset.retry){await api(`/api/jobs/${b.dataset.retry}/retry-failed`,{method:'POST'});toast('Retry queued');load()}
-});
-$('#addLoc').onclick=async()=>{if(!$('#locId').value)return toast('Pick a sub-account');const r=await api('/api/locations',{method:'POST',body:{locationId:$('#locId').value}});
-  toast(r.error||r.warning||`Added ${r.name||''}`);$('#locId').value='';load();loadBackup()};
 
-// ---------- agency panel ----------
-document.querySelectorAll('[data-toggle]').forEach(b=>b.onclick=()=>{const id=b.dataset.toggle;const open=$('#'+id).hidden;document.querySelectorAll('[data-toggle]').forEach(x=>{const p=$('#'+x.dataset.toggle);p.hidden=!(x===b&&open);x.classList.toggle('open',x===b&&open)})});
-async function loadBackup(){
-  const b=await api('/api/backup');const s=b.schedule;
-  if($('#schedPanel').hidden){$('#bkEnabled').checked=!!s.enabled;$('#bkDay').value=s.day;$('#bkHour').value=s.hour;$('#bkMode').value=s.mode;$('#bkImport').checked=!!s.importFirst}
-  $('#bkTz').textContent=b.tz;
-  const box=$('#bkSrcs');if(!box.querySelector('label'))b.sources.forEach(x=>{const l=document.createElement('label');l.innerHTML=`<input type=checkbox value="${x}" ${s.sources.includes(x)?'checked':''}> ${x}`;box.appendChild(l)});
-  $('#bkConnect').href=(b.hubUrl||window.HUB_URL||'')+'/app#connect';
-  const notIn=b.connected.filter(c=>!c.inVault);const sel=$('#locId');const cur=sel.value;
-  sel.innerHTML='<option value="">— connected sub-accounts not yet in the vault —</option>'+notIn.map(c=>`<option value="${c.locationId}">${esc(c.label||c.locationId)}</option>`).join('');if(notIn.some(c=>c.locationId===cur))sel.value=cur;
-  const cred=b.connected.length?`<b>${b.connected.length}</b> sub-accounts connected on the hub${notIn.length?` · <span class="acc">${notIn.length} not in the vault yet</span>`:''}`:'<span class="f">no sub-accounts connected on the hub yet — click Connect sub-accounts</span>';
-  const sched=s.enabled?`Monthly, day ${s.day} at ${String(s.hour).padStart(2,'0')}:00 ${b.tz} · ${s.mode}`:'<span class="f">Schedule off</span>';
-  const dot='<span class="dot"></span>';
-  $('#bkStatus').innerHTML=[`<span><b>${b.counts.enabled}</b> of ${b.counts.total} sub-accounts enabled</span>`,`<span><b>${b.counts.backed_up}</b> backed up</span>`,b.counts.in_progress?`<span><b>${b.counts.in_progress}</b> running</span>`:'',`<span>${sched}</span>`,`<span>${cred}</span>`].filter(Boolean).join(dot);
-  $('#pagesub').textContent=`${b.counts.total} sub-accounts`;
-  const l=s.last;$('#bkLast').textContent=l?`Last run ${new Date(l.at).toLocaleString()} (${l.trigger}, ${l.mode}): ${l.queued} queued, ${l.skipped} busy${l.imported?.total!=null?`, ${l.imported.imported} new sub-accounts imported`:''}${l.imported?.elsewhere?` · ${l.imported.elsewhere} vaulted under another account`:''}${l.imported?.error?' · import failed: '+l.imported.error:''}`:'No backup run yet.';
-}
-$('#bkSave').onclick=async()=>{const r=await api('/api/backup/schedule',{method:'POST',body:{enabled:$('#bkEnabled').checked,day:Number($('#bkDay').value),hour:Number($('#bkHour').value),mode:$('#bkMode').value,importFirst:$('#bkImport').checked,sources:[...document.querySelectorAll('#bkSrcs input:checked')].map(i=>i.value)}});toast(r.error||'Schedule saved');loadBackup()};
-$('#bkNow').onclick=async()=>{if(!confirm('Queue a backup for every enabled sub-account now?'))return;const r=await api('/api/backup/run',{method:'POST',body:{}});toast(r.error||`Queued ${r.queued} sub-accounts`);loadBackup();load()};
-$('#bkTest').onclick=async()=>{toast('Testing…');const r=await api('/api/backup/test',{method:'POST',body:{}});alert(r.ok?`OK — got a token for ${r.location} and read contacts (${r.contacts} total)`:`FAILED\n\n${r.error}`)};
-$('#importAgency2').onclick=async()=>{const r=await api('/api/locations/import-agency',{method:'POST'});toast(r.error||`${r.total} sub-accounts (${r.imported} new${r.elsewhere?`, ${r.elsewhere} held by another account`:''})`);loadBackup();load()};
-loadSources();load();loadBackup();setInterval(load,8000);setInterval(loadBackup,30000);
+  // ---------- menu ----------
+  function renderMenu() {
+    const L = state.locs || [];
+    const failed = L.filter((l) => FILTERS.failed[2](l, statusOf(l))).length;
+    const runnable = visible().filter((l) => !l.inactive && !['running', 'queued'].includes(statusOf(l))).length;
+    const hub = ((state.backup && state.backup.hubUrl) || V.HUB) + '/app#connect';
+    $('moreMenu').innerHTML = `<button data-act="add">${I('plus')}<span>Add a sub-account…</span></button>
+      <button data-act="importAll">${I('users')}<span>Add all connected sub-accounts</span></button>
+      <button data-act="test">${I('shield')}<span>Check the GHL connection<small class="sec">Reads one contact page to make sure access works</small></span></button><hr>
+      <button data-act="runVisible" ${runnable ? '' : 'disabled'}>${I('refresh')}<span>Back up the list below<small class="sec">Full backup of ${N(runnable)} shown sub-account${runnable === 1 ? '' : 's'}</small></span></button>
+      <button data-act="retryAll" ${failed ? '' : 'disabled'}>${I('alert')}<span>Retry everything that needs a look<small class="sec">${N(failed)} sub-account${failed === 1 ? '' : 's'}</small></span></button><hr>
+      <button data-act="schedule">${I('calendar')}<span>Backup schedule…</span></button>
+      <a href="${esc(hub)}">${I('external')}<span>Connect sub-accounts on the hub</span></a>`;
+  }
+  const closeMenu = () => $('moreMenu').classList.remove('open');
+
+  async function act(a) {
+    closeMenu();
+    if (a === 'add') return openAdd();
+    if (a === 'importAll') return importAll();
+    if (a === 'schedule') return openSchedule();
+    if (a === 'allJobs') { ins.showAll = !ins.showAll; const l = state.locs.find((x) => x.location_id === state.sel); if (l) renderHistory(l); return; }
+    if (a === 'test') {
+      RGS.toast('Checking…');
+      const r = await api('/api/backup/test', { method: 'POST', body: {} });
+      return r.ok ? RGS.toast(`Connection works: read ${esc(r.location)} (${N(r.contacts)} contacts)`) : RGS.toast(`Connection check failed: ${r.error || 'unknown problem'}`, { error: true });
+    }
+    if (a === 'runVisible') {
+      const targets = visible().filter((l) => !l.inactive && !['running', 'queued'].includes(statusOf(l)));
+      if (!targets.length) return RGS.toast('Nothing to back up', { error: true });
+      const src = manualSources();
+      if (!(await V.ask({ title: `Back up ${N(targets.length)} sub-account${targets.length === 1 ? '' : 's'}?`, body: `A full backup of ${src.map(srcName).join(', ')} for every sub-account in the list below.`, ok: 'Back up', icon: 'refresh', grad: '--t-blue' }))) return;
+      for (const l of targets) await api('/api/jobs', { method: 'POST', body: { locationId: l.location_id, sources: src } });
+      RGS.toast(`Started ${N(targets.length)}`); return load();
+    }
+    if (a === 'retryAll') {
+      const targets = state.locs.filter((l) => FILTERS.failed[2](l, statusOf(l)));
+      if (!(await V.ask({ title: `Retry ${N(targets.length)} sub-account${targets.length === 1 ? '' : 's'}?`, body: 'Stopped backups pick up where they left off, and files that couldn’t be saved are tried again.', ok: 'Retry', icon: 'refresh', grad: '--t-orange' }))) return;
+      let n = 0;
+      for (const l of targets) { const j = l.last_job; if (!j) continue; if (['failed', 'cancelled'].includes(j.status)) await api(`/api/jobs/${j.id}/resume`, { method: 'POST' }); else if (Number(l.files_failed)) await api(`/api/jobs/${j.id}/retry-failed`, { method: 'POST' }); n++; }
+      RGS.toast(`Retrying ${N(n)}`); return load();
+    }
+  }
+
+  // ---------- events ----------
+  $('q').oninput = (e) => { state.q = e.target.value.trim(); state.page = 1; renderList(); renderMenu(); };
+  $('sort').onchange = (e) => { state.sort = e.target.value; state.dir = 1; ls('vaultSort', state.sort); renderList(); };
+  $('chips').onclick = (e) => { const c = e.target.closest('.chip'); if (!c) return; state.filter = c.dataset.filter; state.page = 1; ls('vaultFilter', state.filter); renderOverview(); renderList(); };
+  $('more').onclick = (e) => { if (e.target.id === 'moreRows') { state.page++; renderList(); } };
+  $('moreBtn').onclick = (e) => { e.stopPropagation(); $('moreMenu').classList.toggle('open'); };
+  $('schedBtn').onclick = () => openSchedule();
+  $('bkNow').onclick = async () => {
+    const n = state.backup?.counts?.enabled;
+    if (!(await V.ask({ title: 'Back up everything now?', body: `Starts a backup for ${n != null ? N(n) + ' ' : 'every '}sub-account${n === 1 ? '' : 's'} in the monthly backup. Ones already running are left alone.`, ok: 'Back up now', icon: 'refresh', grad: '--t-blue' }))) return;
+    const r = await api('/api/backup/run', { method: 'POST', body: {} });
+    if (r.error) return RGS.toast(r.error, { error: true });
+    RGS.toast(`Started ${N(r.queued)} sub-account${r.queued === 1 ? '' : 's'}`); loadBackup(); load();
+  };
+  $('insp').addEventListener('toggle', (e) => { const d = e.target; if (d.tagName !== 'DETAILS' || !d.dataset.job) return; const id = Number(d.dataset.job); if (d.open) ins.openJobs.add(id); else ins.openJobs.delete(id); const sm = d.querySelector('summary'); if (sm) sm.textContent = d.open ? 'Hide details' : 'Details'; $('iHist').dataset.html = ''; }, true);
+  document.addEventListener('change', async (e) => {
+    const c = e.target.closest('input[data-bk]'); if (!c) return;
+    const r = await api(`/api/locations/${encodeURIComponent(c.dataset.bk)}/backup-enabled`, { method: 'POST', body: { enabled: c.checked } });
+    if (r.error) { c.checked = !c.checked; return RGS.toast(r.error, { error: true }); }
+    RGS.toast(c.checked ? 'In the monthly backup' : 'Left out of the monthly backup'); load(); loadBackup();
+  });
+  document.addEventListener('click', async (e) => {
+    if (!e.target.closest('.menu-wrap')) closeMenu();
+    const cp = e.target.closest('[data-copy]'); if (cp) { RGS.copy(cp.dataset.copy, cp.dataset.what || ''); return; }
+    const a = e.target.closest('[data-act]'); if (a) { e.preventDefault(); if (!a.disabled) act(a.dataset.act); return; }
+    if (e.target.id === 'inspClose') { selectLoc(null); return; }
+    const row = e.target.closest('#rows .li[data-loc]'); if (row) { selectLoc(state.sel === row.dataset.loc ? null : row.dataset.loc); return; }
+    if (e.target === $('split')) { selectLoc(null); return; }
+    const dl = e.target.closest('[data-download]'); if (dl) { openDownload(dl.dataset.download); return; }
+    if (e.target.closest('[data-failures]')) { openFailures(); return; }
+    const pn = e.target.closest('[data-pushnew]'); if (pn) { e.preventDefault(); openPush(null); return; }
+    const pp = e.target.closest('[data-pushpkg]'); if (pp) { openPush(pp.dataset.pushpkg); return; }
+    const pb = e.target.closest('[data-pkg]');
+    if (pb) {
+      if (pb.disabled) return;
+      const r = await api(`/api/locations/${encodeURIComponent(pb.dataset.pkg)}/packages`, { method: 'POST', body: { size: Number(pb.dataset.size) } });
+      RGS.toast(r.error || `Package #${r.id} started with ${N(r.contact_count)} contacts`, r.error ? { error: true } : {}); ins.at = 0; renderInsp(); return;
+    }
+    const db = e.target.closest('[data-dissolve]');
+    if (db) {
+      const locked = db.dataset.locked === '1';
+      if (!(await V.ask({ title: locked ? `Release package #${db.dataset.dissolve}?` : `Remove export #${db.dataset.dissolve}?`, body: locked ? 'Its contacts go back into the pool so they can be packaged again.' : 'This deletes the export record.', ok: locked ? 'Release' : 'Remove', danger: true }))) return;
+      await api(`/api/packages/${db.dataset.dissolve}`, { method: 'DELETE' }); RGS.toast(locked ? 'Released' : 'Removed'); ins.at = 0; renderInsp(); return;
+    }
+    const pc = e.target.closest('[data-pushcancel]'); if (pc) { await api(`/api/pushes/${pc.dataset.pushcancel}/cancel`, { method: 'POST' }); RGS.toast('Stopping'); ins.at = 0; renderInsp(); return; }
+    const pr = e.target.closest('[data-pushresume]'); if (pr) { await api(`/api/pushes/${pr.dataset.pushresume}/resume`, { method: 'POST' }); RGS.toast('Picking up again'); ins.at = 0; renderInsp(); return; }
+    const pd = e.target.closest('[data-pushdel]');
+    if (pd) { if (!(await V.ask({ title: 'Remove this copy from the list?', body: 'Nothing is deleted in GHL.', ok: 'Remove', danger: true }))) return; await api(`/api/pushes/${pd.dataset.pushdel}`, { method: 'DELETE' }); ins.at = 0; renderInsp(); return; }
+    const b = e.target.closest('[data-run],[data-sync],[data-cancel],[data-resume],[data-retry],[data-reset],[data-del]'); if (!b) return;
+    if (b.dataset.run) { const r = await api('/api/jobs', { method: 'POST', body: { locationId: b.dataset.run, sources: manualSources() } }); RGS.toast(r.error || 'Backup started', r.error ? { error: true } : {}); ins.at = 0; load(); }
+    else if (b.dataset.sync) { const r = await api('/api/jobs', { method: 'POST', body: { locationId: b.dataset.sync, sources: manualSources(), incremental: true } }); RGS.toast(r.error || `Getting changes since ${DT(r.since)}`, r.error ? { error: true } : {}); ins.at = 0; load(); }
+    else if (b.dataset.cancel) { await api(`/api/jobs/${b.dataset.cancel}/cancel`, { method: 'POST' }); RGS.toast('Stopping after the current page'); ins.at = 0; load(); }
+    else if (b.dataset.resume) { await api(`/api/jobs/${b.dataset.resume}/resume`, { method: 'POST' }); RGS.toast('Picking up again'); ins.at = 0; load(); }
+    else if (b.dataset.retry) { await api(`/api/jobs/${b.dataset.retry}/retry-failed`, { method: 'POST' }); RGS.toast('Trying failed files again'); ins.at = 0; load(); }
+    else if (b.dataset.reset || b.dataset.del) {
+      const loc = b.dataset.reset || b.dataset.del, del = !!b.dataset.del;
+      const name = (state.locs.find((l) => l.location_id === loc) || {}).name || loc;
+      const r0 = await V.ask({ title: del ? `Remove ${name} from the vault?` : `Reset ${name}?`, body: `This forgets its backups, file records, contacts and packages${del ? ' and stops tracking it' : ''}.`, ok: del ? 'Remove' : 'Reset', danger: true, icon: 'trash', grad: '--t-pink', toggle: { label: 'Also delete the saved files', sub: 'Removes what was already copied to your storage' } });
+      if (!r0.ok) return;
+      const r = await api(`/api/locations/${encodeURIComponent(loc)}${del ? '' : '/reset'}`, { method: del ? 'DELETE' : 'POST', body: { purgeR2: r0.toggled } });
+      if (r.error) return RGS.toast(r.error, { error: true });
+      RGS.toast(`${del ? 'Removed' : 'Reset'}${r0.toggled ? ` · ${N(r.r2Deleted)} saved files deleted` : ''}`);
+      if (del) selectLoc(null); else ins.at = 0;
+      load(); loadBackup();
+    }
+  });
+
+  // keyboard: / search · ↑↓ move · esc close
+  document.addEventListener('keydown', (e) => {
+    if (V.sheetOpen()) return;
+    const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName);
+    if (e.key === '/' && !typing) { e.preventDefault(); $('q').focus(); return; }
+    if (e.key === 'Escape') { closeMenu(); if (typing) document.activeElement.blur(); selectLoc(null); return; }
+    if (typing && document.activeElement !== $('q')) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const items = [...document.querySelectorAll('#rows .li[data-loc]')]; if (!items.length) return;
+      e.preventDefault();
+      let i = items.findIndex((x) => x.dataset.loc === state.sel);
+      i = e.key === 'ArrowDown' ? Math.min(items.length - 1, i + 1) : Math.max(0, i - 1);
+      selectLoc(items[i].dataset.loc, { scroll: true });
+    }
+    if (e.key === 'Enter' && document.activeElement === $('q')) { const f = document.querySelector('#rows .li[data-loc]'); if (f) selectLoc(f.dataset.loc); }
+  });
+
+  // ---------- boot ----------
+  V.nav('vault');
+  RGS.ready.then(() => {
+    I = (n) => RGS.icon(n);
+    $('moreBtn').innerHTML = I('more');
+    $('schedBtn').innerHTML = `${I('calendar')}Schedule`;
+    $('bkNow').innerHTML = `${I('download')}Back up all now`;
+    skeleton();
+    // The sidebar's sub-account is shared across tools: picking one there opens it here when it's in the vault.
+    RGS.onLocation((loc) => { if (loc && (state.locs || []).some((l) => l.location_id === loc.locationId)) selectLoc(loc.locationId, { scroll: true }); });
+    Promise.all([load(), loadBackup()]).then(() => {
+      if (!state.sel && window.innerWidth > 1100) { const cur = RGS.location(); if (cur && (state.locs || []).some((l) => l.location_id === cur.locationId)) selectLoc(cur.locationId); }
+    });
+    setInterval(load, 8000); setInterval(loadBackup, 30000);
+  });
+})();
 </script>
 </body>
 </html>

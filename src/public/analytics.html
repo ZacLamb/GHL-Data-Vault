@@ -1,176 +1,224 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>GHL Vault · Documents</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/vault.css">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Documents · Data Vault · RGS Tools</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="/config.js"></script>
-<script src="/vault.js" data-page="locations"></script>
+<script src="/ui/rgs-shell.js"></script>
+<link rel="stylesheet" href="/ui/rgs-ui.css">
+<link rel="stylesheet" href="/vault.css">
+<script src="/vault.js"></script>
 <style>
-  main{max-width:1500px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
-  .filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;align-items:start}
-  .filters label{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;font-weight:600}
-  .filters label input,.filters label select{letter-spacing:0;text-transform:none;font-weight:400}
-  select[multiple]{height:88px}
-  .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:16px 0 0;padding-top:14px;border-top:1px solid var(--line)}
-  .count{color:var(--accent);font-weight:600;font-family:"JetBrains Mono",monospace}
-  td{vertical-align:top}
-  .checks label{font-size:12.5px;color:var(--ink-2)}
-  .card h3 a{font-weight:500;letter-spacing:0;text-transform:none;margin-left:4px}
+  #kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } @media (max-width: 700px) { #kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .sec-h { display: flex; align-items: baseline; gap: 10px; margin: 4px 0 12px; } .sec-h span { color: var(--sec); font-size: 12.5px; }
+  .bgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 0 16px; }
+  .bgrid .grp { margin-bottom: 18px; }
+  .filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px 14px; padding: 14px; }
+  .filters .wide { grid-column: span 2; } @media (max-width: 600px) { .filters .wide { grid-column: auto; } }
+  .grp .filters input, .grp .filters select { background: var(--main); box-shadow: 0 0 0 .5px var(--sep); }
+  .grp .filters input:focus, .grp .filters select:focus { box-shadow: 0 0 0 3px var(--ring); }
+  .bar-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 12px 14px; border-top: .5px solid var(--sep); }
+  .bar-actions .count { margin-left: 0; color: var(--text); }
+  .bar-actions .count b { font-variant-numeric: tabular-nums; }
+  .bar-actions select { width: auto; }
+  .cgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px 18px; padding: 14px; }
+  .cgrid h3 { font-size: 13px; font-weight: 600; display: flex; gap: 8px; align-items: baseline; margin-bottom: 6px; }
+  .cgrid h3 a { font-weight: 500; font-size: 12px; }
+  .checks { max-height: 220px; overflow-y: auto; }
+  .checks label { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--text); font-weight: 400; margin: 0; padding: 3px 0; cursor: pointer; }
+  .tag { display: inline-block; background: var(--fill); border-radius: 5px; padding: 0 6px; font-size: 11.5px; margin: 1px 3px 1px 0; color: var(--sec); }
+  .table-wrap td { vertical-align: top; }
 </style>
 </head>
 <body>
-<main>
-  <div class="pagehead"><h1>Documents</h1><span class="sub" id="locLabel"></span><span class="sp"></span><a class="btn ghost" href="/app">← All locations</a></div>
-  <div class="kpis" id="kpis"></div>
+  <div class="toolbar-top">
+    <a class="btn plain" href="/app" id="back" style="padding-left:0"></a>
+    <div class="seg" id="nav"></div>
+    <span class="spacer"></span>
+  </div>
+  <div class="wrap">
+    <div class="page-head"><div><h1>Documents</h1><p id="locLabel">&nbsp;</p></div></div>
+    <div id="body">
+      <div class="tiles" id="kpis"></div>
 
-  <h2 class="sec">Breakdowns <span class="id">click any row to add it as a filter</span></h2>
-  <div class="grid">
-    <div class="card"><h3>Documents per contact</h3><div id="dist"></div></div>
-    <div class="card"><h3>Contacts by document field</h3><div id="fields"></div></div>
-    <div class="card"><h3>Contacts by tag</h3><div id="tags"></div></div>
-    <div class="card"><h3>Contacts by state</h3><div id="states"></div></div>
-    <div class="card"><h3>Contacts added per month</h3><div id="months"></div></div>
-    <div class="card"><h3>Files by source</h3><div id="sources"></div></div>
-    <div class="card"><h3>Documents uploaded per month <span id="undated" class="id"></span></h3><div id="docMonths"></div></div>
+      <div class="sec-h"><h2>Breakdowns</h2><span>Tap a row to filter by it</span></div>
+      <div class="bgrid">
+        <div><div class="gh">Documents per contact</div><div class="grp card bars" id="dist"></div></div>
+        <div><div class="gh">Contacts by document field</div><div class="grp card bars" id="fields"></div></div>
+        <div><div class="gh">Contacts by tag</div><div class="grp card bars" id="tags"></div></div>
+        <div><div class="gh">Contacts by state</div><div class="grp card bars" id="states"></div></div>
+        <div><div class="gh">Contacts added per month</div><div class="grp card bars" id="months"></div></div>
+        <div><div class="gh">Files by source</div><div class="grp card bars" id="sources"></div></div>
+        <div><div class="gh">Documents uploaded per month</div><div class="grp card bars" id="docMonths"></div><div class="foot" id="undated"></div></div>
+      </div>
+
+      <div class="gh">Filter contacts</div>
+      <div class="grp card">
+        <div class="filters">
+          <div><label for="minFiles">Min documents</label><input id="minFiles" type="number" min="0" placeholder="e.g. 1"></div>
+          <div><label for="maxFiles">Max documents</label><input id="maxFiles" type="number" min="0"></div>
+          <div><label for="fields_sel">Must have fields</label><select id="fields_sel" multiple></select></div>
+          <div><label for="notFields_sel">Must not have fields</label><select id="notFields_sel" multiple></select></div>
+          <div><label for="tags_sel">Tags (any)</label><select id="tags_sel" multiple></select></div>
+          <div><label for="states_sel">States (any)</label><select id="states_sel" multiple></select></div>
+          <div><label for="addedFrom">Contact added from</label><input id="addedFrom" type="date"></div>
+          <div><label for="addedTo">Contact added to</label><input id="addedTo" type="date"></div>
+          <div><label for="updatedFrom">Contact updated from</label><input id="updatedFrom" type="date"></div>
+          <div><label for="updatedTo">Contact updated to</label><input id="updatedTo" type="date"></div>
+          <div><label for="docsFrom">Documents uploaded from</label><input id="docsFrom" type="date"></div>
+          <div><label for="docsTo">Documents uploaded to</label><input id="docsTo" type="date"></div>
+          <div><label for="docsField">…in field</label><select id="docsField"><option value="">Any field</option></select></div>
+          <div><label for="customKey">Custom field</label><select id="customKey"><option value="">None</option></select></div>
+          <div><label for="customValue">Custom value contains</label><input id="customValue" type="text"></div>
+          <div><label for="q">Name, email, company or phone</label><input id="q" type="text"></div>
+          <div><label for="unassigned">Only not packaged yet</label><select id="unassigned"><option value="">No</option><option value="1">Yes</option></select></div>
+        </div>
+        <div class="bar-actions">
+          <button class="btn" id="apply">Apply filters</button>
+          <button class="btn tinted" id="clear">Clear</button>
+          <span class="count"><b id="matchCount">—</b> matching contacts</span>
+          <span class="spacer"></span>
+          <button class="btn tinted" id="csv">Download CSV</button>
+          <select id="pkgSize" aria-label="Package size"></select>
+          <button class="btn tinted" id="pkg" title="Package this many random contacts from the filter">Package random</button>
+          <button class="btn" id="exportAll" title="Every contact matching the filter, with contacts.csv and documents in one download. Doesn't take contacts out of rep packages.">Export all matching</button>
+        </div>
+      </div>
+
+      <div class="gh">What goes in a package or export</div>
+      <div class="grp card">
+        <div class="cgrid">
+          <div><h3>Contact columns <a href="#" data-all="cols">All</a><a href="#" data-none="cols">None</a></h3><div id="cols" class="checks"></div></div>
+          <div><h3>Custom field columns <a href="#" data-all="ccols">All</a><a href="#" data-none="ccols">None</a></h3><div id="ccols" class="checks"></div></div>
+          <div><h3>Documents to include <a href="#" data-all="docs">All</a><a href="#" data-none="docs">None</a></h3><div id="docs" class="checks"></div></div>
+        </div>
+        <div class="filters" style="border-top:.5px solid var(--sep)">
+          <div><label for="folderPreset">Folder names</label><select id="folderPreset">
+            <option value="{Contact Id}">Contact ID</option>
+            <option value="{Company Name}">Company name</option>
+            <option value="{Last Name}, {First Name}">Last name, first name</option>
+            <option value="{Company Name} - {First Name} {Last Name}">Company - first last</option>
+            <option value="custom">Custom…</option>
+          </select></div>
+          <div class="wide"><label for="folderCustom">Custom folder name</label><input id="folderCustom" type="text" placeholder="{State} - {Company Name} - {Last Name}" disabled></div>
+        </div>
+      </div>
+      <div class="foot">Use any {Column} or {Custom Field Name}. Blanks drop out and duplicates get the contact ID added. contacts.csv always has the contact ID and a Folder column, so the file list matches up whatever you name folders.</div>
+
+      <div class="gh">Matching contacts<span class="end" id="pageInfo"></span></div>
+      <div class="table-wrap"><table><thead><tr><th>Contact</th><th>Company</th><th>State</th><th>Docs</th><th>Fields</th><th>Tags</th><th>Added</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
+      <div class="pager"><button class="btn sm tinted" id="prev">Previous</button><button class="btn sm tinted" id="next">Next</button></div>
+    </div>
   </div>
 
-  <h2 class="sec">Filter the dataset</h2>
-  <div class="card">
-    <div class="filters">
-      <label>Min documents<input id="minFiles" type="number" min="0" placeholder="e.g. 1"></label>
-      <label>Max documents<input id="maxFiles" type="number" min="0"></label>
-      <label>Must have fields<select id="fields_sel" multiple></select></label>
-      <label>Must NOT have fields<select id="notFields_sel" multiple></select></label>
-      <label>Tags (any)<select id="tags_sel" multiple></select></label>
-      <label>States (any)<select id="states_sel" multiple></select></label>
-      <label>Contact added from<input id="addedFrom" type="date"></label>
-      <label>Contact added to<input id="addedTo" type="date"></label>
-      <label>Contact updated from<input id="updatedFrom" type="date"></label>
-      <label>Contact updated to<input id="updatedTo" type="date"></label>
-      <label>Docs uploaded from<input id="docsFrom" type="date"></label>
-      <label>Docs uploaded to<input id="docsTo" type="date"></label>
-      <label>…in field (optional)<select id="docsField"><option value="">any</option></select></label>
-      <label>Custom field<select id="customKey"><option value="">—</option></select></label>
-      <label>Custom value contains<input id="customValue"></label>
-      <label>Search name / email / company / phone<input id="q"></label>
-      <label>Only not-yet-packaged<select id="unassigned"><option value="">no</option><option value="1">yes</option></select></label>
-    </div>
-    <div class="actions">
-      <button class="btn primary" id="apply">Apply filters</button>
-      <button class="btn" id="clear">Clear</button>
-      <span>Matching: <span class="count" id="matchCount">—</span> contacts</span>
-      <span style="flex:1"></span>
-      <button class="btn" id="csv">Export filtered CSV</button>
-      <select id="pkgSize"></select>
-      <button class="btn" id="pkg">Package random N from filter</button>
-      <button id="exportAll" class="btn primary" title="Every contact matching the filter, with contacts.csv + documents in one download. Does not lock contacts out of rep packages.">Export all matching (CSV + documents)</button>
-    </div>
-  </div>
-
-  <h2 class="sec">Package contents <span class="id">what goes into contacts.csv and which documents are copied</span></h2>
-  <div class="card">
-    <div class="grid">
-      <div><h3>Contact columns <a href="#" data-all="cols" class="id">all</a> · <a href="#" data-none="cols" class="id">none</a></h3><div id="cols" class="checks"></div></div>
-      <div><h3>Custom field columns <a href="#" data-all="ccols" class="id">all</a> · <a href="#" data-none="ccols" class="id">none</a></h3><div id="ccols" class="checks"></div></div>
-      <div><h3>Documents to include <a href="#" data-all="docs" class="id">all</a> · <a href="#" data-none="docs" class="id">none</a></h3><div id="docs" class="checks"></div></div>
-    </div>
-    <div class="filters" style="margin-top:14px">
-      <label>Folder naming<select id="folderPreset">
-        <option value="{Contact Id}">Contact Id</option>
-        <option value="{Company Name}">Company Name</option>
-        <option value="{Last Name}, {First Name}">Last Name, First Name</option>
-        <option value="{Company Name} - {First Name} {Last Name}">Company - First Last</option>
-        <option value="custom">Custom template…</option>
-      </select></label>
-      <label style="grid-column:span 2">Custom template (use {Standard Column} or {Custom Field Name}; blanks drop out, duplicates get the contact id appended)<input id="folderCustom" placeholder="{State} - {Company Name} - {Last Name}" disabled></label>
-    </div>
-    <div class="id" style="margin-top:8px">Contact Id is always included in contacts.csv (plus a Folder column) so manifest.csv joins regardless of folder naming.</div>
-  </div>
-
-  <div class="card" style="margin-top:14px">
-    <div class="tableWrap"><table><thead><tr><th>Contact</th><th>Company</th><th>State</th><th>Docs</th><th>Fields</th><th>Tags</th><th>Added</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
-    <div class="pager"><button class="btn sm" id="prev">‹</button><span id="pageInfo"></span><button class="btn sm" id="next">›</button></div>
-  </div>
-</main>
-<div class="toast" id="toast"></div>
 <script>
-const loc=new URLSearchParams(location.search).get('loc');
-const $=s=>document.querySelector(s);
-const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3200)};
-const api=(p,o={})=>fetch(p,{headers:{'Content-Type':'application/json'},...o,body:o.body?JSON.stringify(o.body):undefined}).then(r=>r.json());
-const N=n=>Number(n||0).toLocaleString();
-const fmtB=n=>{n=Number(n||0);const u=['B','KB','MB','GB','TB'];let i=0;while(n>=1024&&i<4){n/=1024;i++}return n.toFixed(i?1:0)+' '+u[i]};
-let page=1,total=0,LIMIT=50;
-$('#locLabel').textContent=loc;fetch('/api/locations').then(r=>r.json()).then(ls=>{const l=ls.find(x=>x.location_id===loc);if(l)$('#locLabel').textContent=(l.name||loc)+' · '+loc}).catch(()=>{});
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const { esc, api, N, fmtB } = V;
+  let loc = new URLSearchParams(location.search).get('loc');
+  let page = 1, total = 0; const LIMIT = 50;
 
-function bars(el,rows,key='contacts',onClick){
-  const max=Math.max(1,...rows.map(r=>Number(r[key])));
-  el.innerHTML=rows.length?rows.map(r=>`<div class="bar" data-k="${String(r.key).replace(/"/g,'&quot;')}"><span class="k" title="${r.key}">${r.key??'(none)'}</span><div class="t" style="width:${100*Number(r[key])/max}%"></div><span class="n">${N(r[key])}</span></div>`).join(''):'<span class="id">no data yet</span>';
-  if(onClick)el.querySelectorAll('.bar').forEach(b=>b.onclick=()=>onClick(b.dataset.k));
-}
-function fillSelect(sel,items){sel.innerHTML=items.map(i=>`<option value="${String(i).replace(/"/g,'&quot;')}">${i}</option>`).join('')}
-function selectValue(sel,v){[...sel.options].forEach(o=>{if(o.value===v)o.selected=true});}
+  function bars(el, rows, key = 'contacts', onClick, label = (k) => k) {
+    const max = Math.max(1, ...rows.map((r) => Number(r[key])));
+    el.innerHTML = rows.length ? rows.map((r) => `<div class="bar${onClick ? ' click' : ''}" data-k="${esc(r.key)}"><span class="k" title="${esc(r.key)}">${esc(r.key == null ? '(none)' : label(r.key))}</span><span class="t"><i style="width:${(100 * Number(r[key])) / max}%"></i></span><span class="n">${N(r[key])}</span></div>`).join('') : '<div class="none">No data yet</div>';
+    if (onClick) el.querySelectorAll('.bar').forEach((b) => b.onclick = () => onClick(b.dataset.k));
+  }
+  const fillSelect = (sel, items) => { sel.innerHTML = items.map((i) => `<option value="${esc(i)}">${esc(i)}</option>`).join(''); };
+  const selectValue = (sel, v) => [...sel.options].forEach((o) => { if (o.value === v) o.selected = true; });
+  const monthEnd = (k) => { const d = new Date(k + '-01T00:00:00Z'); d.setUTCMonth(d.getUTCMonth() + 1); d.setUTCDate(0); return d.toISOString().slice(0, 10); };
 
-async function loadAnalytics(){
-  const a=await api(`/api/locations/${loc}/analytics`);const s=a.summary;
-  $('#kpis').innerHTML=[
-    ['Contacts',N(s.contacts),'a'],['With documents',N(s.with_docs),'g'],['Without documents',N(s.without_docs),'r'],
-    ['Documents in R2',N(s.documents)],['Avg docs (contacts w/ docs)',s.avg_per_contact_with_docs??'—'],['Storage',fmtB(s.bytes)],
-    ['Not yet packaged',N(s.unassigned)],['Failed downloads',N(s.failed_files),s.failed_files?'r':''],
-  ].map(([l,v,c])=>`<div class="kpi ${c||''}"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
-  bars($('#dist'),[{key:'0',contacts:s.without_docs},{key:'1',contacts:s.b1},{key:'2–4',contacts:s.b2_4},{key:'5–9',contacts:s.b5_9},{key:'10+',contacts:s.b10p}],'contacts',k=>{
-    const m={'0':[0,0],'1':[1,1],'2–4':[2,4],'5–9':[5,9],'10+':[10,'']}[k];$('#minFiles').value=m[0];$('#maxFiles').value=m[1];run()});
-  bars($('#fields'),a.fields,'contacts',k=>{selectValue($('#fields_sel'),k);run()});
-  bars($('#tags'),a.tags,'contacts',k=>{selectValue($('#tags_sel'),k);run()});
-  bars($('#states'),a.states,'contacts',k=>{selectValue($('#states_sel'),k);run()});
-  bars($('#months'),a.months,'contacts',k=>{$('#addedFrom').value=k+'-01';const d=new Date(k+'-01T00:00:00Z');d.setUTCMonth(d.getUTCMonth()+1);d.setUTCDate(0);$('#addedTo').value=d.toISOString().slice(0,10);run()});
-  bars($('#sources'),a.sources,'files');
-  bars($('#docMonths'),a.docMonths,'files',k=>{$('#docsFrom').value=k+'-01';const d=new Date(k+'-01T00:00:00Z');d.setUTCMonth(d.getUTCMonth()+1);d.setUTCDate(0);$('#docsTo').value=d.toISOString().slice(0,10);run()});
-  $('#undated').textContent=a.undatedFiles?`— ${a.undatedFiles.toLocaleString()} files not dated yet: run the file_dates source`:'';
-  $('#docsField').innerHTML='<option value="">any</option>'+a.fields.map(f=>`<option>${f.key}</option>`).join('');
-  fillSelect($('#fields_sel'),a.fields.map(f=>f.key));fillSelect($('#notFields_sel'),a.fields.map(f=>f.key));
-  const checks=(el,items)=>{el.innerHTML=items.map(i=>`<label><input type="checkbox" value="${String(i).replace(/"/g,'&quot;')}" checked> ${i}</label>`).join('')||'<span class="id">none yet</span>'};
-  checks($('#ccols'),a.customKeys);checks($('#docs'),a.fields.map(f=>f.key));
-  fillSelect($('#tags_sel'),a.tags.map(f=>f.key));fillSelect($('#states_sel'),a.states.map(f=>f.key));
-  $('#customKey').innerHTML='<option value="">—</option>'+a.customKeys.map(k=>`<option>${k}</option>`).join('');
-}
-const multi=sel=>[...sel.selectedOptions].map(o=>o.value);
-function filters(){return{minFiles:$('#minFiles').value,maxFiles:$('#maxFiles').value,fields:multi($('#fields_sel')),notFields:multi($('#notFields_sel')),
-  tags:multi($('#tags_sel')),states:multi($('#states_sel')),addedFrom:$('#addedFrom').value,addedTo:$('#addedTo').value,
-  updatedFrom:$('#updatedFrom').value,updatedTo:$('#updatedTo').value,docsFrom:$('#docsFrom').value,docsTo:$('#docsTo').value,docsField:$('#docsField').value,
-  customKey:$('#customKey').value,customValue:$('#customValue').value,q:$('#q').value,unassigned:!!$('#unassigned').value}}
-async function run(p=1){
-  page=p;const r=await api(`/api/locations/${loc}/search`,{method:'POST',body:{filters:filters(),page,limit:LIMIT}});
-  total=r.total;$('#matchCount').textContent=N(total);
-  $('#rows').innerHTML=r.rows.map(c=>`<tr><td><b>${[c.first_name,c.last_name].filter(Boolean).join(' ')||'—'}</b><div class="id">${c.email||''} ${c.phone||''}</div><div class="id">${c.contact_id}</div></td>
-    <td>${c.company||''}</td><td>${c.state||''}</td><td><b>${c.docs}</b></td><td class="id">${c.fields||''}</td><td>${(c.tags||[]).map(t=>`<span class="tag">${t}</span>`).join('')}</td>
-    <td class="id">${c.date_added?new Date(c.date_added).toLocaleDateString():''}</td><td>${c.assigned?'<span class="pill done">packaged</span>':''}</td></tr>`).join('')||'<tr><td colspan="8" class="id">no matches</td></tr>';
-  const pages=Math.max(1,Math.ceil(total/LIMIT));$('#pageInfo').textContent=`page ${page} / ${pages}`;$('#prev').disabled=page<=1;$('#next').disabled=page>=pages;
-}
-$('#apply').onclick=()=>run(1);
-$('#clear').onclick=()=>{document.querySelectorAll('.filters input').forEach(i=>i.value='');document.querySelectorAll('.filters select').forEach(s=>{[...s.options].forEach(o=>o.selected=false);s.value=''});run(1)};
-$('#prev').onclick=()=>run(page-1);$('#next').onclick=()=>run(page+1);
-$('#csv').onclick=async()=>{const r=await fetch(`/api/locations/${loc}/search.csv`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filters:filters()})});
-  const a=document.createElement('a');a.href=URL.createObjectURL(await r.blob());a.download=`${loc}-filtered.csv`;a.click()};
-$('#pkg').onclick=async()=>{const size=Number($('#pkgSize').value);if(!confirm(`Create a package of ${N(size)} random contacts from the current filter?`))return;
-  const r=await api(`/api/locations/${loc}/packages`,{method:'POST',body:{size,filters:filters(),label:'filtered',columns:columns(),fileFields:checked('docs'),folderTemplate:folderTemplate()}});toast(r.error||`Package #${r.id} queued with ${N(r.contact_count)} contacts`);loadAnalytics();run(page)};
-$('#exportAll').onclick=async()=>{const n=$('#matchCount').textContent;if(!confirm(`Build an export of all ${n} matching contacts with their documents (using the column/document/folder choices above)?`))return;
-  const r=await api(`/api/locations/${loc}/packages`,{method:'POST',body:{size:'all',filters:filters(),label:'filtered export',columns:columns(),fileFields:checked('docs'),folderTemplate:folderTemplate()}});
-  if(r.error)return toast(r.error);toast(`Export #${r.id} building (${N(r.contact_count)} contacts)…`);setTimeout(()=>location.href=`/api/packages/${r.id}/export`,1500)};
-api(`/api/locations/${loc}/pool`).then(p=>{$('#pkgSize').innerHTML=p.sizes.map(s=>`<option value="${s}">${s>=1000?s/1000+'k':s}</option>`).join('');
-  $('#cols').innerHTML=p.standardColumns.map(i=>`<label><input type="checkbox" value="${i}" checked> ${i}</label>`).join('')});
-document.addEventListener('click',e=>{const a=e.target.closest('a[data-all],a[data-none]');if(!a)return;e.preventDefault();
-  const on=!!a.dataset.all;document.querySelectorAll(`#${a.dataset.all||a.dataset.none} input`).forEach(i=>i.checked=on)});
-const checked=id=>[...document.querySelectorAll(`#${id} input:checked`)].map(i=>i.value);
-const columns=()=>[...checked('cols'),...checked('ccols')];
-$('#folderPreset').onchange=()=>{$('#folderCustom').disabled=$('#folderPreset').value!=='custom'};
-const folderTemplate=()=>$('#folderPreset').value==='custom'?($('#folderCustom').value.trim()||'{Contact Id}'):$('#folderPreset').value;
-loadAnalytics();run(1);
+  async function loadAnalytics() {
+    const a = await api(`/api/locations/${encodeURIComponent(loc)}/analytics`);
+    if (a.error || !a.summary) throw new Error(a.error || 'Couldn’t load');
+    const s = a.summary;
+    const tile = (k, v, dot) => `<div class="tile"><div class="k">${dot ? `<span class="dot" style="background:${dot}"></span>` : ''}${k}</div><div class="v">${v}</div></div>`;
+    $('kpis').innerHTML = [tile('Contacts', N(s.contacts)), tile('With documents', N(s.with_docs), 'var(--green)'), tile('Without documents', N(s.without_docs), 'var(--orange)'), tile('Documents saved', N(s.documents)),
+      tile('Avg docs per contact with docs', s.avg_per_contact_with_docs ?? '—'), tile('Storage', fmtB(s.bytes)), tile('Not packaged yet', N(s.unassigned)), tile('Failed downloads', N(s.failed_files), s.failed_files ? 'var(--red)' : '')].join('');
+    bars($('dist'), [{ key: '0', contacts: s.without_docs }, { key: '1', contacts: s.b1 }, { key: '2–4', contacts: s.b2_4 }, { key: '5–9', contacts: s.b5_9 }, { key: '10+', contacts: s.b10p }], 'contacts', (k) => {
+      const m = { 0: [0, 0], 1: [1, 1], '2–4': [2, 4], '5–9': [5, 9], '10+': [10, ''] }[k]; $('minFiles').value = m[0]; $('maxFiles').value = m[1]; run();
+    }, (k) => `${k} document${k === '1' ? '' : 's'}`);
+    bars($('fields'), a.fields, 'contacts', (k) => { selectValue($('fields_sel'), k); run(); });
+    bars($('tags'), a.tags, 'contacts', (k) => { selectValue($('tags_sel'), k); run(); });
+    bars($('states'), a.states, 'contacts', (k) => { selectValue($('states_sel'), k); run(); });
+    bars($('months'), a.months, 'contacts', (k) => { $('addedFrom').value = k + '-01'; $('addedTo').value = monthEnd(k); run(); });
+    bars($('sources'), a.sources, 'files', null, (k) => k.replace(/_/g, ' '));
+    bars($('docMonths'), a.docMonths, 'files', (k) => { $('docsFrom').value = k + '-01'; $('docsTo').value = monthEnd(k); run(); });
+    $('undated').textContent = a.undatedFiles ? `${N(a.undatedFiles)} files don't have a date yet. Back up with Upload dates turned on to fill them in.` : '';
+    $('docsField').innerHTML = '<option value="">Any field</option>' + a.fields.map((f) => `<option>${esc(f.key)}</option>`).join('');
+    fillSelect($('fields_sel'), a.fields.map((f) => f.key)); fillSelect($('notFields_sel'), a.fields.map((f) => f.key));
+    const checks = (el, items) => { el.innerHTML = items.map((i) => `<label><input type="checkbox" value="${esc(i)}" checked> ${esc(i)}</label>`).join('') || '<span class="sec" style="font-size:12.5px">None yet</span>'; };
+    checks($('ccols'), a.customKeys); checks($('docs'), a.fields.map((f) => f.key));
+    fillSelect($('tags_sel'), a.tags.map((f) => f.key)); fillSelect($('states_sel'), a.states.map((f) => f.key));
+    $('customKey').innerHTML = '<option value="">None</option>' + a.customKeys.map((k) => `<option>${esc(k)}</option>`).join('');
+  }
+  const multi = (sel) => [...sel.selectedOptions].map((o) => o.value);
+  function filters() {
+    return { minFiles: $('minFiles').value, maxFiles: $('maxFiles').value, fields: multi($('fields_sel')), notFields: multi($('notFields_sel')),
+      tags: multi($('tags_sel')), states: multi($('states_sel')), addedFrom: $('addedFrom').value, addedTo: $('addedTo').value,
+      updatedFrom: $('updatedFrom').value, updatedTo: $('updatedTo').value, docsFrom: $('docsFrom').value, docsTo: $('docsTo').value, docsField: $('docsField').value,
+      customKey: $('customKey').value, customValue: $('customValue').value, q: $('q').value, unassigned: !!$('unassigned').value };
+  }
+  async function run(p = 1) {
+    page = p;
+    $('rows').innerHTML = `<tr><td colspan="8"><div class="status" style="margin:0"><span class="spin"></span>Loading…</div></td></tr>`;
+    const r = await api(`/api/locations/${encodeURIComponent(loc)}/search`, { method: 'POST', body: { filters: filters(), page, limit: LIMIT } });
+    if (r.error) { $('rows').innerHTML = `<tr><td colspan="8" class="sec">${esc(r.error)}</td></tr>`; return; }
+    total = r.total; $('matchCount').textContent = N(total);
+    $('rows').innerHTML = r.rows.map((c) => `<tr><td><b style="font-weight:550">${esc([c.first_name, c.last_name].filter(Boolean).join(' ') || '—')}</b><span class="sub">${esc(c.email || '')} ${esc(c.phone || '')}</span><span class="sub mono">${esc(c.contact_id)}</span></td>
+      <td>${esc(c.company || '')}</td><td>${esc(c.state || '')}</td><td><b style="font-weight:600">${N(c.docs)}</b></td><td class="sec" style="font-size:12.5px">${esc(c.fields || '')}</td><td>${(c.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</td>
+      <td class="sec" style="white-space:nowrap">${c.date_added ? new Date(c.date_added).toLocaleDateString() : ''}</td><td>${c.assigned ? '<span class="pill purple">Packaged</span>' : ''}</td></tr>`).join('') || '<tr><td colspan="8" class="sec">No contacts match.</td></tr>';
+    const pages = Math.max(1, Math.ceil(total / LIMIT)); $('pageInfo').textContent = `Page ${page} of ${N(pages)}`; $('prev').disabled = page <= 1; $('next').disabled = page >= pages;
+  }
+  const checked = (id) => [...document.querySelectorAll(`#${id} input:checked`)].map((i) => i.value);
+  const columns = () => [...checked('cols'), ...checked('ccols')];
+  const folderTemplate = () => ($('folderPreset').value === 'custom' ? $('folderCustom').value.trim() || '{Contact Id}' : $('folderPreset').value);
+
+  $('apply').onclick = () => run(1);
+  $('clear').onclick = () => { document.querySelectorAll('.filters input').forEach((i) => { if (i.id !== 'folderCustom') i.value = ''; }); document.querySelectorAll('.filters select').forEach((s) => { if (s.id === 'folderPreset') return; [...s.options].forEach((o) => (o.selected = false)); s.value = ''; }); run(1); };
+  $('prev').onclick = () => run(page - 1); $('next').onclick = () => run(page + 1);
+  document.querySelectorAll('.filters input[type=text], .filters input[type=number]').forEach((i) => i.addEventListener('keydown', (e) => { if (e.key === 'Enter' && i.id !== 'folderCustom') run(1); }));
+  $('csv').onclick = async () => {
+    const r = await fetch(`/api/locations/${encodeURIComponent(loc)}/search.csv`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filters: filters() }) });
+    if (!r.ok) return RGS.toast('Couldn’t build the CSV', { error: true });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = `${loc}-filtered.csv`; a.click(); RGS.toast('CSV downloaded');
+  };
+  $('pkg').onclick = async () => {
+    const size = Number($('pkgSize').value);
+    if (!(await V.ask({ title: `Package ${N(size)} random contacts?`, body: 'They’re picked from the contacts matching your filter, using the columns, documents and folder names below. Packaged contacts aren’t handed out again.', ok: 'Create package', icon: 'folder', grad: '--t-purple' }))) return;
+    const r = await api(`/api/locations/${encodeURIComponent(loc)}/packages`, { method: 'POST', body: { size, filters: filters(), label: 'filtered', columns: columns(), fileFields: checked('docs'), folderTemplate: folderTemplate() } });
+    RGS.toast(r.error || `Package #${r.id} started with ${N(r.contact_count)} contacts`, r.error ? { error: true } : {}); if (!r.error) { loadAnalytics().catch(() => {}); run(page); }
+  };
+  $('exportAll').onclick = async () => {
+    if (!(await V.ask({ title: `Export all ${$('matchCount').textContent} matching contacts?`, body: 'Builds contacts.csv plus their documents, using the columns, documents and folder names below.', ok: 'Build export', icon: 'download', grad: '--t-blue' }))) return;
+    const r = await api(`/api/locations/${encodeURIComponent(loc)}/packages`, { method: 'POST', body: { size: 'all', filters: filters(), label: 'filtered export', columns: columns(), fileFields: checked('docs'), folderTemplate: folderTemplate() } });
+    if (r.error) return RGS.toast(r.error, { error: true });
+    RGS.toast(`Export #${r.id} building (${N(r.contact_count)} contacts)…`); setTimeout(() => (location.href = `/api/packages/${r.id}/export`), 1500);
+  };
+  document.addEventListener('click', (e) => { const a = e.target.closest('a[data-all],a[data-none]'); if (!a) return; e.preventDefault(); const on = !!a.dataset.all; document.querySelectorAll(`#${a.dataset.all || a.dataset.none} input`).forEach((i) => (i.checked = on)); });
+  $('folderPreset').onchange = () => { $('folderCustom').disabled = $('folderPreset').value !== 'custom'; };
+
+  function start() {
+    $('body').style.display = '';
+    $('locLabel').textContent = loc;
+    api('/api/locations').then((ls) => { const l = Array.isArray(ls) && ls.find((x) => x.location_id === loc); if (l) $('locLabel').textContent = `${l.name || 'Unnamed sub-account'} · ${loc}`; });
+    api(`/api/locations/${encodeURIComponent(loc)}/pool`).then((p) => { if (p.error) return; $('pkgSize').innerHTML = p.sizes.map((s) => `<option value="${s}">${s >= 1000 ? s / 1000 + 'k' : s}</option>`).join(''); $('cols').innerHTML = p.standardColumns.map((i) => `<label><input type="checkbox" value="${esc(i)}" checked> ${esc(i)}</label>`).join(''); });
+    $('kpis').innerHTML = Array.from({ length: 8 }, () => '<div class="tile"><div class="skel" style="width:60%;margin:4px 0 12px"></div><div class="skel" style="width:40%;height:20px"></div></div>').join('');
+    loadAnalytics().catch((e) => { $('body').innerHTML = `<div class="empty">${RGS.glyph('alert', '--t-orange')}<b>Couldn’t load documents</b>${esc(e.message)}<div style="margin-top:14px"><a class="btn tinted lg" href="/app">Back to Data Vault</a></div></div>`; });
+    run(1);
+  }
+
+  V.nav('vault');
+  RGS.ready.then(() => {
+    $('back').innerHTML = `${RGS.icon('left')}Data Vault`;
+    // Switching sub-account in the sidebar opens that sub-account's documents.
+    RGS.onLocation((l) => { if (l) location.search = '?loc=' + encodeURIComponent(l.locationId); });
+    if (!loc) loc = RGS.location()?.locationId || null;
+    if (!loc) { $('body').innerHTML = `<div class="empty">${RGS.glyph('folder', '--t-orange')}<b>Choose a sub-account</b>Pick one in the sidebar, or open Documents from a sub-account in Data Vault.<div style="margin-top:14px"><a class="btn tinted lg" href="/app">Open Data Vault</a></div></div>`; return; }
+    start();
+  });
+})();
 </script>
 </body>
 </html>

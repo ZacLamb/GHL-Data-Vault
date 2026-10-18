@@ -110,7 +110,9 @@ app.get('/share/:token', async (req, res) => {
 
 // --- auth: hub session for pages and API; design assets + public pages stay open ----------
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'landing.html')));
-app.get('/config.js', (req, res) => res.type('application/javascript').send(`window.HUB_URL=${JSON.stringify(hub.HUB_URL)};window.TOOL_SLUG="data-vault";`));
+// Shared RGS design: the hub serves the stylesheet and app frame; pages load them from /ui/.
+app.get('/ui/:file(rgs-ui.css|rgs-shell.js)', (req, res) => res.redirect(302, `${hub.HUB_URL}/ui/${req.params.file}`));
+app.get('/config.js',(req, res) => res.type('application/javascript').send(`window.HUB_URL=${JSON.stringify(hub.HUB_URL)};window.TOOL_SLUG="data-vault";`));
 app.get('/app', hub.requireToolPage, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 for (const page of ['search.html', 'usage.html', 'analytics.html']) app.get('/' + page, hub.requireToolPage, (req, res) => res.sendFile(path.join(__dirname, 'public', page)));
 app.use(express.static(path.join(__dirname, 'public'), { index: false, extensions: [] }));   // css, js, fonts; html pages are routed above

@@ -1,47 +1,77 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Account activity report</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!-- Public, no-login page for a sub-account owner: it uses the shared RGS design but not the app frame
+     (no sidebar, sub-account switcher or account menu belongs on a page a client opens). -->
+<script>
+  (function () { var t = null; try { t = localStorage.getItem('report-theme'); } catch (e) {}
+    if (t !== 'light' && t !== 'dark') { var m = document.cookie.match(/(?:^|; )rgs_theme=(light|dark)/); if (m) t = m[1]; }
+    if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    document.documentElement.dataset.theme = t; })();
+</script>
+<link rel="stylesheet" href="/ui/rgs-ui.css">
 <link rel="stylesheet" href="/vault.css">
-<script src="/vault.js" data-page="report"></script>
 <style>
-  header.rep{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;padding:30px 36px 18px;border-bottom:1px solid var(--line)}
-  header.rep .brand{font:600 10.5px/1 "Schibsted Grotesk",sans-serif;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);width:100%;margin-bottom:10px}
-  header.rep h1{font-size:34px}header.rep .r{color:var(--dim);font-size:13px;margin-left:auto}
-  main{padding:22px 36px 72px;max-width:1300px}
-  .bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center}
-  table{white-space:nowrap}th{text-align:right}th:first-child,td:first-child{text-align:left}td{text-align:right}
-  @media print{.bar{display:none}}
+  body { background: var(--main); }
+  .page { max-width: 1240px; margin: 0 auto; padding: 36px 28px 70px; }
+  .eyebrow { font-size: 12.5px; font-weight: 600; color: var(--sec); margin-bottom: 4px; }
+  .tiles { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+  .tile .v { font-size: 22px; }
+  .chartbox { margin-bottom: 22px; }
+  .note2 { font-size: 12px; color: var(--sec); padding: 0 14px; margin: -14px 0 22px; }
+  .icon-btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+  @media (max-width: 600px) { .page { padding: 22px 16px 50px; } }
+  @media print { .no-print { display: none !important; } body { background: #fff; } .page { padding: 0; } }
 </style>
 </head>
 <body>
-<header class="rep"><span class="brand">Account activity report</span><h1 id="title">Account activity</h1><span class="r" id="range"></span></header>
-<main>
-  <div class="bar"><div class="seg"><button data-d="7">Last 7 days</button><button data-d="30" class="on">Last 30 days</button><button data-d="90">Last 90 days</button></div><span style="flex:1"></span><button class="btn" onclick="window.vaultTheme.toggle()">Light / dark</button><button class="btn primary" onclick="print()">Print / PDF</button></div>
-  <div class="kpis" id="kpis"></div>
-  <h2 class="sec">Daily activity</h2><div class="card"><div class="chart" id="chart"></div><div class="legend"><span><i class="s"></i>SMS out</span><span><i class="e"></i>Email out</span><span><i class="c"></i>Calls</span><span><i class="i"></i>Inbound</span></div></div>
-  <h2 class="sec">Team</h2><div class="card"><div class="tableWrap"><table id="t"><thead></thead><tbody></tbody></table></div>
-  <div class="note">Active = activity in the last 7 days on 3+ days · Low = activity within 30 days · Inactive = none in 30+ days · Talk time = total call duration.</div></div>
-</main>
+<div class="page">
+  <div class="page-head">
+    <div><div class="eyebrow">Account activity report</div><h1 id="title">Account activity</h1><p id="range">&nbsp;</p></div>
+    <div class="actions no-print">
+      <div class="seg" id="days"><button data-d="7">7 days</button><button data-d="30" class="on">30 days</button><button data-d="90">90 days</button></div>
+      <button class="icon-btn" id="theme" title="Light or dark" aria-label="Switch light or dark"><svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg></button>
+      <button class="btn" onclick="print()">Print or save PDF</button>
+    </div>
+  </div>
+  <div class="tiles" id="kpis"></div>
+  <div class="gh">Daily activity</div>
+  <div class="grp chartbox"><div class="chart" id="chart"></div>
+    <div class="legend"><span><i class="dot" style="background:var(--blue)"></i>Texts sent</span><span><i class="dot" style="background:var(--purple)"></i>Emails sent</span><span><i class="dot" style="background:var(--green)"></i>Calls</span><span><i class="dot" style="background:var(--orange)"></i>Inbound</span></div></div>
+  <div class="gh">Team</div>
+  <div class="table-wrap num"><table id="t"><thead></thead><tbody></tbody></table></div>
+  <div class="note2">Active: activity on 3 or more of the last 7 days. Low: some activity in the last 30 days. Inactive: nothing in 30 days or more. Talk time adds up call length.</div>
+</div>
 <script>
-const token=location.pathname.split('/').pop();const $=s=>document.querySelector(s);const N=n=>Number(n||0).toLocaleString();
-const mins=s=>{s=Number(s||0);const h=Math.floor(s/3600),m=Math.round((s%3600)/60);return h?`${h}h ${m}m`:`${m}m`};const D=s=>s?new Date(s).toLocaleDateString():'—';
-async function load(days=30){
-  const to=new Date(),from=new Date(to.getTime()-days*86400000);const iso=d=>d.toISOString().slice(0,10);
-  const r=await fetch(`/api/report/${token}?from=${iso(from)}&to=${iso(to)}`).then(r=>r.json());
-  $('#title').textContent=`${r.name||'Account'} — activity report`;$('#range').textContent=`${from.toLocaleDateString()} – ${to.toLocaleDateString()}`;
-  const s=r.summary;$('#kpis').innerHTML=[['New contacts',N(s.contacts.created)],['Outbound messages',N(s.messages.outbound)],['Inbound messages',N(s.messages.inbound)],['Calls',N(s.messages.calls)],['Talk time',mins(s.messages.talk_seconds)],['Active users',N(s.messages.active_users)],['Opportunities won',N(s.opportunities.won)],['Won value',`$${N(Math.round(s.opportunities.won_value))}`],['Appointments',N(s.appointments.booked)]]
-    .map(([l,v])=>`<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
-  const max=Math.max(1,...r.daily.map(d=>d.sms+d.email+d.calls+d.inbound));
-  $('#chart').innerHTML=r.daily.map(d=>`<div class="d" title="${d.day.slice(0,10)}"><div class="s" style="height:${110*d.sms/max}px"></div><div class="e" style="height:${110*d.email/max}px"></div><div class="c" style="height:${110*d.calls/max}px"></div><div class="i" style="height:${110*d.inbound/max}px"></div></div>`).join('');
-  const cols=[['User',u=>`<b>${u.name||'(unknown)'}</b>`],['Status',u=>`<span class="pill ${u.status}">${u.status}</span>`],['SMS',u=>N(u.sms_out)],['Email',u=>N(u.email_out)],['Calls',u=>N(u.calls_out+u.calls_in)],['Talk',u=>mins(u.talk_seconds)],['Contacts touched',u=>N(u.contacts_touched)],['Created',u=>N(u.contacts_created)],['Opps',u=>N(u.opps_created)],['Won',u=>N(u.opps_won)],['Appts',u=>N(u.appointments)],['Active days',u=>N(u.active_days)],['Last activity',u=>D(u.last_activity)]];
-  $('#t thead').innerHTML='<tr>'+cols.map(c=>`<th>${c[0]}</th>`).join('')+'</tr>';
-  $('#t tbody').innerHTML=r.users.map(u=>'<tr>'+cols.map(c=>`<td>${c[1](u)}</td>`).join('')+'</tr>').join('');
+const token = location.pathname.split('/').pop(); const $ = (s) => document.querySelector(s);
+const N = (n) => Number(n || 0).toLocaleString();
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const mins = (s) => { s = Number(s || 0); const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return h ? `${h}h ${m}m` : `${m}m`; };
+const D = (s) => (s ? new Date(s).toLocaleDateString() : '—');
+async function load(days = 30) {
+  const to = new Date(), from = new Date(to.getTime() - days * 86400000); const iso = (d) => d.toISOString().slice(0, 10);
+  $('#kpis').innerHTML = Array.from({ length: 9 }, () => '<div class="tile"><div class="skel" style="width:60%;margin:4px 0 12px"></div><div class="skel" style="width:40%;height:18px"></div></div>').join('');
+  const res = await fetch(`/api/report/${token}?from=${iso(from)}&to=${iso(to)}`); const r = await res.json().catch(() => ({}));
+  if (!res.ok || !r.summary) { $('#kpis').innerHTML = ''; $('#title').textContent = 'Report not available'; $('#range').textContent = 'This link may have been turned off. Ask for a new one.'; return; }
+  $('#title').textContent = `${r.name || 'Account'}`; document.title = `${r.name || 'Account'} · activity report`;
+  $('#range').textContent = `${from.toLocaleDateString()} – ${to.toLocaleDateString()}`;
+  const s = r.summary;
+  $('#kpis').innerHTML = [['New contacts', N(s.contacts.created)], ['Messages sent', N(s.messages.outbound)], ['Messages received', N(s.messages.inbound)], ['Calls', N(s.messages.calls)], ['Talk time', mins(s.messages.talk_seconds)], ['Active users', N(s.messages.active_users)], ['Opportunities won', N(s.opportunities.won)], ['Won value', `$${N(Math.round(s.opportunities.won_value))}`], ['Appointments', N(s.appointments.booked)]]
+    .map(([l, v]) => `<div class="tile"><div class="k">${l}</div><div class="v">${v}</div></div>`).join('');
+  const max = Math.max(1, ...r.daily.map((d) => d.sms + d.email + d.calls + d.inbound));
+  $('#chart').innerHTML = r.daily.map((d) => `<div class="d" title="${d.day.slice(0, 10)}"><div class="s" style="height:${(120 * d.sms) / max}px"></div><div class="e" style="height:${(120 * d.email) / max}px"></div><div class="c" style="height:${(120 * d.calls) / max}px"></div><div class="i" style="height:${(120 * d.inbound) / max}px"></div></div>`).join('') || '<span class="sec" style="align-self:center">No messages in this range</span>';
+  const st = { active: 'ok', low: 'warn', inactive: 'bad' };
+  const cols = [['User', (u) => `<b style="font-weight:550">${esc(u.name || 'Unknown user')}</b>`], ['Status', (u) => `<span class="pill ${st[u.status] || ''}">${esc(u.status)}</span>`], ['Texts', (u) => N(u.sms_out)], ['Emails', (u) => N(u.email_out)], ['Calls', (u) => N(u.calls_out + u.calls_in)], ['Talk', (u) => mins(u.talk_seconds)], ['Contacts reached', (u) => N(u.contacts_touched)], ['Created', (u) => N(u.contacts_created)], ['Opps', (u) => N(u.opps_created)], ['Won', (u) => N(u.opps_won)], ['Appts', (u) => N(u.appointments)], ['Active days', (u) => N(u.active_days)], ['Last activity', (u) => D(u.last_activity)]];
+  $('#t thead').innerHTML = '<tr>' + cols.map((c) => `<th>${c[0]}</th>`).join('') + '</tr>';
+  $('#t tbody').innerHTML = r.users.map((u) => '<tr>' + cols.map((c) => `<td>${c[1](u)}</td>`).join('') + '</tr>').join('') || `<tr><td colspan="${cols.length}" class="sec">No team activity in this range</td></tr>`;
 }
-document.querySelectorAll('button[data-d]').forEach(b=>b.onclick=()=>{document.querySelectorAll('button[data-d]').forEach(x=>x.classList.toggle('on',x===b));load(Number(b.dataset.d))});load();
+document.querySelectorAll('#days button').forEach((b) => b.onclick = () => { document.querySelectorAll('#days button').forEach((x) => x.classList.toggle('on', x === b)); load(Number(b.dataset.d)); });
+$('#theme').onclick = () => { const t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = t; try { localStorage.setItem('report-theme', t); } catch (e) {} };
+load();
 </script>
 </body>
 </html>

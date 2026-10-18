@@ -1,113 +1,159 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>GHL Vault · Usage</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/vault.css">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Usage · Data Vault · RGS Tools</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="/config.js"></script>
-<script src="/vault.js" data-page="usage"></script>
+<script src="/ui/rgs-shell.js"></script>
+<link rel="stylesheet" href="/ui/rgs-ui.css">
+<link rel="stylesheet" href="/vault.css">
+<script src="/vault.js"></script>
 <style>
-  main{max-width:1600px}
-  .bar{display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:16px}
-  .bar label{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;font-weight:600}
-  .bar label input,.bar label select{letter-spacing:0;text-transform:none;font-weight:400}
-  table{white-space:nowrap}
-  th{text-align:right;cursor:pointer}th:first-child,td:first-child{text-align:left}td{text-align:right;font-variant-numeric:tabular-nums}
-  tr.sel td{background:var(--sel)}tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--blue)}
-  .sum{display:flex;gap:10px 18px;flex-wrap:wrap;margin:0 0 12px;font-size:13px;color:var(--dim);align-items:center}.sum b{color:var(--ink)}
+  .wrap { max-width: 1500px; }
+  .controls { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 20px; }
+  .controls > div { min-width: 0; }
+  .controls #locSel { width: 260px; } .controls input[type=date] { width: 150px; }
+  @media (max-width: 600px) { .controls .seg { flex: 1 1 100%; flex-wrap: nowrap; } .controls .seg button { flex: 1; padding: 4px 6px; justify-content: center; } .controls #apply { flex: 1 1 100%; }
+    .controls > div, .controls #locSel, .controls input[type=date] { width: 100%; flex: 1 1 140px; } }
+  .tiles { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .tile .v { font-size: 22px; }
+  .chartbox { margin-bottom: 22px; }
+  .table-wrap td b { font-weight: 550; }
+  .note2 { font-size: 12px; color: var(--sec); padding: 0 14px; margin: -14px 0 22px; }
 </style>
 </head>
 <body>
-<main>
-  <div class="pagehead"><h1>Usage</h1><span class="sub" id="locLabel">agency</span></div>
-  <div class="bar">
-    <label>Location<select id="locSel"><option value="">— all sub-accounts (overview) —</option></select></label>
-    <label>From<input id="from" type="date"></label>
-    <label>To<input id="to" type="date"></label>
-    <div class="seg"><button id="q7">7d</button><button id="q30">30d</button><button id="q90">90d</button><button id="qytd">YTD</button></div>
-    <button id="apply" class="btn primary">Apply</button>
-    <span style="flex:1"></span>
-    <button id="csv" class="btn">Export table CSV</button>
-    <button id="share" class="btn blue" style="display:none">Owner report link</button>
+  <div class="toolbar-top">
+    <div class="seg" id="nav"></div>
+    <span class="spacer"></span>
+    <button class="icon-btn" id="csv" title="Download this table as CSV"></button>
+  </div>
+  <div class="wrap">
+    <div class="page-head"><div><h1>Usage</h1><p id="locLabel">How every sub-account is using GHL</p></div>
+      <div class="actions"><button class="btn tinted" id="share" style="display:none" title="A read-only page the sub-account owner can open without logging in"></button></div></div>
+    <div class="controls">
+      <div><label for="locSel">Sub-account</label><select id="locSel"><option value="">All sub-accounts</option></select></div>
+      <div><label for="from">From</label><input id="from" type="date"></div>
+      <div><label for="to">To</label><input id="to" type="date"></div>
+      <div class="seg" id="quick"><button data-q="7">7 days</button><button data-q="30" class="on">30 days</button><button data-q="90">90 days</button><button data-q="ytd">This year</button></div>
+      <button id="apply" class="btn">Apply</button>
+    </div>
+
+    <div id="overview"></div>
+    <div id="location" style="display:none">
+      <div class="tiles" id="kpis"></div>
+      <div class="gh">Daily activity<span class="end" id="chartFor"></span></div>
+      <div class="grp card chartbox"><div class="chart" id="chart"></div>
+        <div class="legend"><span><i class="dot" style="background:var(--blue)"></i>Texts sent</span><span><i class="dot" style="background:var(--purple)"></i>Emails sent</span><span><i class="dot" style="background:var(--green)"></i>Calls</span><span><i class="dot" style="background:var(--orange)"></i>Inbound</span></div></div>
+      <div class="gh">By channel</div>
+      <div class="table-wrap num" id="channels"></div>
+      <div class="gh">By user<span class="end">Tap a row to chart that user · tap a heading to sort</span></div>
+      <div class="table-wrap num"><table id="users"><thead></thead><tbody></tbody></table></div>
+      <div class="note2">GHL doesn't share logins, so active days are days with any outgoing activity. Talk time adds up call length. Created counts contacts that user made; assigned is who owns them now. Back up with Team activity and Messages turned on to fill this in.</div>
+    </div>
   </div>
 
-  <div id="overview"></div>
-  <div id="location" style="display:none">
-    <div class="kpis" id="kpis"></div>
-    <h2 class="sec">Daily activity <span class="id" id="chartFor"></span></h2>
-    <div class="card"><div class="chart" id="chart"></div>
-      <div class="legend"><span><i class="s"></i>SMS out</span><span><i class="e"></i>Email out</span><span><i class="c"></i>Calls</span><span><i class="i"></i>Inbound</span></div></div>
-    <h2 class="sec">By channel</h2><div class="card" id="channels"></div>
-    <h2 class="sec">By user <span class="id">click a row to chart that user · click headers to sort</span></h2>
-    <div class="card"><div class="tableWrap"><table id="users"><thead></thead><tbody></tbody></table></div>
-      <div class="note">Logins aren't exposed by the GHL API; "active days" = days with any outbound activity. Talk time = summed call duration. Contacts created counts contacts whose createdBy is that user; assigned = currently assigned. Run the <b>usage</b> and <b>conversations</b> sources to populate.</div></div>
-  </div>
-</main>
 <script>
-const $=s=>document.querySelector(s);
-const api=(p)=>fetch(p).then(r=>r.json());
-const N=n=>Number(n||0).toLocaleString();
-const mins=s=>{s=Number(s||0);const h=Math.floor(s/3600),m=Math.round((s%3600)/60);return h?`${h}h ${m}m`:`${m}m`};
-const D=s=>s?new Date(s).toLocaleDateString():'—';
-const iso=d=>d.toISOString().slice(0,10);
-let loc=new URLSearchParams(location.search).get('loc')||'';let lastRows=[],lastCols=[],sortKey=null,sortDir=-1,selUser=null;
-function setRange(days){const t=new Date();const f=new Date(t.getTime()-days*86400000);$('#from').value=iso(f);$('#to').value=iso(t)}
-$('#q7').onclick=()=>{setRange(7);load()};$('#q30').onclick=()=>{setRange(30);load()};$('#q90').onclick=()=>{setRange(90);load()};
-$('#qytd').onclick=()=>{$('#from').value=new Date().getFullYear()+'-01-01';$('#to').value=iso(new Date());load()};
-$('#apply').onclick=load;$('#locSel').onchange=()=>{loc=$('#locSel').value;selUser=null;history.replaceState(null,'',loc?`?loc=${loc}`:'?');load()};
-const qs=()=>`from=${$('#from').value}&to=${$('#to').value}`;
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const { esc, api, N, D, mins } = V;
+  const iso = (d) => d.toISOString().slice(0, 10);
+  let loc = new URLSearchParams(location.search).get('loc') || '';
+  let lastRows = [], lastCols = [], sortKey = null, sortDir = -1, selUser = null, render = () => {};
 
-function table(el,cols,rows,onRow){
-  const th=el.querySelector('thead'),tb=el.querySelector('tbody');
-  th.innerHTML='<tr>'+cols.map(c=>`<th data-k="${c.k}">${c.l}${sortKey===c.k?(sortDir<0?' ▼':' ▲'):''}</th>`).join('')+'</tr>';
-  th.querySelectorAll('th').forEach(h=>h.onclick=()=>{const k=h.dataset.k;sortDir=sortKey===k?-sortDir:-1;sortKey=k;render()});
-  const sorted=sortKey?[...rows].sort((a,b)=>{const x=a[sortKey],y=b[sortKey];return (x==null?-1:y==null?1:typeof x==='number'?x-y:String(x).localeCompare(String(y)))*sortDir}):rows;
-  tb.innerHTML=sorted.map(r=>`<tr data-id="${r.user_id||r.location_id||''}" class="${(r.user_id&&r.user_id===selUser)?'sel':''}">${cols.map(c=>`<td>${c.f?c.f(r):N(r[c.k])}</td>`).join('')}</tr>`).join('')||`<tr><td colspan="${cols.length}" class="id">no data — run the usage + conversations sources for this location</td></tr>`;
-  if(onRow)tb.querySelectorAll('tr').forEach(tr=>tr.onclick=()=>onRow(tr.dataset.id));
-  lastRows=sorted;lastCols=cols;
-}
-let render=()=>{};
-async function chart(userId){
-  const s=await api(`/api/locations/${loc}/usage/daily?${qs()}${userId?`&userId=${userId}`:''}`);
-  const max=Math.max(1,...s.map(d=>d.sms+d.email+d.calls+d.inbound));const H=130;
-  $('#chart').innerHTML=s.map(d=>`<div class="d" title="${d.day.slice(0,10)}: ${d.sms} sms, ${d.email} email, ${d.calls} calls, ${d.inbound} in">
-    <div class="s" style="height:${H*d.sms/max}px"></div><div class="e" style="height:${H*d.email/max}px"></div><div class="c" style="height:${H*d.calls/max}px"></div><div class="i" style="height:${H*d.inbound/max}px"></div></div>`).join('')||'<span class="id">no messages in range</span>';
-  $('#chartFor').textContent=userId?`— ${(lastRows.find(r=>r.user_id===userId)||{}).name||userId}`:'— whole account';
-}
-async function load(){
-  if(!loc){
-    $('#location').style.display='none';$('#locLabel').textContent='agency';
-    $('#share').style.display='none';
-    const rows=await api(`/api/usage/overview?${qs()}`);
-    const cnt=t=>rows.filter(r=>r.health===t).length;
-    $('#overview').innerHTML=`<h2 class="sec" style="margin-top:6px">Agency checkup</h2><div class="sum"><span><b>${rows.length}</b> sub-accounts</span><span class="pill active">${cnt('active')} active</span><span class="pill slowing">${cnt('slowing')} slowing</span><span class="pill dormant">${cnt('dormant')} dormant</span><span class="pill never">${cnt('never')} never used</span><span><b>${N(rows.reduce((a,r)=>a+r.idle_seats,0))}</b> seats with no activity in 30d</span></div>
-      <div class="card"><div class="tableWrap"><table id="ov"><thead></thead><tbody></tbody></table></div><div class="note">Health: active = outbound in last 30d; slowing = last 30d under half of the prior 30d; dormant = nothing in 30d; never = no activity on record. Idle seats = users with no outbound activity in 30d.</div></div>`;
-    const cols=[{k:'name',l:'Location',f:r=>`<b>${r.name||'(unnamed)'}</b><div class="id">${r.location_id}</div>`},{k:'health',l:'Health',f:r=>`<span class="pill ${r.health}">${r.health}</span>`},{k:'users',l:'Users'},{k:'active_users',l:'Active'},{k:'idle_seats',l:'Idle seats'},{k:'contacts',l:'Contacts'},{k:'contacts_new',l:'New'},
-      {k:'outbound',l:'Out'},{k:'inbound',l:'In'},{k:'calls',l:'Calls'},{k:'talk_seconds',l:'Talk',f:r=>mins(r.talk_seconds)},{k:'won',l:'Won'},{k:'last_activity',l:'Last activity',f:r=>D(r.last_activity)},{k:'last_export',l:'Last export',f:r=>D(r.last_export)}];
-    render=()=>table($('#ov'),cols,rows,id=>{loc=id;$('#locSel').value=id;history.replaceState(null,'',`?loc=${id}`);load()});render();return;
+  function setRange(days) { const t = new Date(); $('from').value = iso(new Date(t.getTime() - days * 86400000)); $('to').value = iso(t); }
+  $('quick').querySelectorAll('button').forEach((b) => b.onclick = () => {
+    $('quick').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+    if (b.dataset.q === 'ytd') { $('from').value = new Date().getFullYear() + '-01-01'; $('to').value = iso(new Date()); } else setRange(Number(b.dataset.q));
+    load();
+  });
+  ['from', 'to'].forEach((id) => $(id).addEventListener('change', () => $('quick').querySelectorAll('button').forEach((x) => x.classList.remove('on'))));
+  $('apply').onclick = load;
+  $('locSel').onchange = () => { loc = $('locSel').value; selUser = null; sortKey = null; history.replaceState(null, '', loc ? `?loc=${encodeURIComponent(loc)}` : '?'); load(); };
+  const qs = () => `from=${$('from').value}&to=${$('to').value}`;
+  const pill = (v, map) => `<span class="pill ${map[v] || ''}">${esc(v)}</span>`;
+
+  function table(el, cols, rows, onRow) {
+    const th = el.querySelector('thead'), tb = el.querySelector('tbody');
+    th.innerHTML = '<tr>' + cols.map((c) => `<th class="sortable" data-k="${c.k}">${c.l}${sortKey === c.k ? (sortDir < 0 ? ' ↓' : ' ↑') : ''}</th>`).join('') + '</tr>';
+    th.querySelectorAll('th').forEach((h) => h.onclick = () => { const k = h.dataset.k; sortDir = sortKey === k ? -sortDir : -1; sortKey = k; render(); });
+    const sorted = sortKey ? [...rows].sort((a, b) => { const x = a[sortKey], y = b[sortKey]; return (x == null ? -1 : y == null ? 1 : typeof x === 'number' ? x - y : String(x).localeCompare(String(y))) * sortDir; }) : rows;
+    tb.innerHTML = sorted.map((r) => `<tr data-id="${esc(r.user_id || r.location_id || '')}" class="${onRow ? 'click' : ''} ${r.user_id && r.user_id === selUser ? 'sel' : ''}">${cols.map((c) => `<td>${c.f ? c.f(r) : N(r[c.k])}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${cols.length}" class="sec" style="text-align:left">No activity yet. Back up this sub-account with Team activity and Messages turned on.</td></tr>`;
+    if (onRow) tb.querySelectorAll('tr[data-id]').forEach((tr) => tr.onclick = () => onRow(tr.dataset.id));
+    lastRows = sorted; lastCols = cols;
   }
-  $('#overview').innerHTML='';$('#location').style.display='';$('#locLabel').textContent=$('#locSel').selectedOptions[0]?.textContent||loc;
-  const [s,users]=await Promise.all([api(`/api/locations/${loc}/usage?${qs()}`),api(`/api/locations/${loc}/usage/users?${qs()}`)]);
-  $('#kpis').innerHTML=[['Contacts created',N(s.contacts.created)],['Outbound msgs',N(s.messages.outbound)],['Inbound msgs',N(s.messages.inbound)],['Calls',N(s.messages.calls)],['Talk time',mins(s.messages.talk_seconds)],
-    ['Active users',N(s.messages.active_users)],['Contacts touched',N(s.messages.contacts_touched)],['Opps created',N(s.opportunities.created)],['Opps won',N(s.opportunities.won)],['Won value',`$${N(Math.round(s.opportunities.won_value))}`],['Open opps',N(s.opportunities.open_now)],['Appointments',N(s.appointments.booked)]]
-    .map(([l,v])=>`<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
-  $('#channels').innerHTML='<table><thead><tr><th style="text-align:left">Channel</th><th>Outbound</th><th>Inbound</th></tr></thead><tbody>'+
-    [...new Set(s.channels.map(c=>c.channel))].map(ch=>`<tr><td style="text-align:left">${ch}</td><td>${N((s.channels.find(c=>c.channel===ch&&c.direction==='outbound')||{}).n)}</td><td>${N((s.channels.find(c=>c.channel===ch&&c.direction==='inbound')||{}).n)}</td></tr>`).join('')+'</tbody></table>';
-  $('#share').style.display='';
-  const cols=[{k:'name',l:'User',f:r=>`<b>${r.name||'(unknown user)'}</b><div class="id">${r.email||r.user_id} ${r.role?'· '+r.role:''}</div>`},{k:'status',l:'Status',f:r=>`<span class="pill ${r.status}">${r.status}</span>`},{k:'sms_out',l:'SMS'},{k:'email_out',l:'Email'},{k:'social_out',l:'Social'},{k:'calls_out',l:'Calls out'},{k:'calls_in',l:'Calls in'},
-    {k:'talk_seconds',l:'Talk',f:r=>mins(r.talk_seconds)},{k:'total_out',l:'Total out'},{k:'contacts_touched',l:'Touched'},{k:'contacts_created',l:'Created'},{k:'contacts_assigned',l:'Assigned'},{k:'opps_created',l:'Opps'},{k:'opps_won',l:'Won'},{k:'won_value',l:'Won $',f:r=>'$'+N(Math.round(r.won_value))},
-    {k:'appointments',l:'Appts'},{k:'notes',l:'Notes'},{k:'tasks',l:'Tasks'},{k:'contact_edits',l:'Edits'},{k:'stage_moves',l:'Stage moves'},{k:'active_days',l:'Active days'},{k:'first_activity',l:'First',f:r=>D(r.first_activity)},{k:'last_activity',l:'Last',f:r=>D(r.last_activity)}];
-  if(!sortKey)sortKey='total_out';
-  render=()=>table($('#users'),cols,users,id=>{selUser=selUser===id?null:id;render();chart(selUser)});render();chart(selUser);
-}
-$('#share').onclick=async()=>{const r=await fetch(`/api/locations/${loc}/report-token`,{method:'POST'}).then(r=>r.json());
-  await navigator.clipboard.writeText(r.url).catch(()=>{});prompt('Read-only owner report link (copied). Generating a new one revokes the old.',r.url)};
-$('#csv').onclick=()=>{const lines=[lastCols.map(c=>`"${c.l}"`).join(',')].concat(lastRows.map(r=>lastCols.map(c=>`"${String(r[c.k]??'').replace(/"/g,'""')}"`).join(',')));
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/csv'}));a.download=`usage-${loc||'agency'}.csv`;a.click()};
-api('/api/locations').then(ls=>{$('#locSel').innerHTML='<option value="">— all sub-accounts (overview) —</option>'+ls.map(l=>`<option value="${l.location_id}">${l.name||l.location_id}</option>`).join('');$('#locSel').value=loc;setRange(30);load()});
+  async function chart(userId) {
+    const s = await api(`/api/locations/${encodeURIComponent(loc)}/usage/daily?${qs()}${userId ? `&userId=${encodeURIComponent(userId)}` : ''}`);
+    if (!Array.isArray(s)) return;
+    const max = Math.max(1, ...s.map((d) => d.sms + d.email + d.calls + d.inbound)); const H = 128;
+    $('chart').innerHTML = s.map((d) => `<div class="d" title="${d.day.slice(0, 10)}: ${d.sms} texts, ${d.email} emails, ${d.calls} calls, ${d.inbound} inbound"><div class="s" style="height:${(H * d.sms) / max}px"></div><div class="e" style="height:${(H * d.email) / max}px"></div><div class="c" style="height:${(H * d.calls) / max}px"></div><div class="i" style="height:${(H * d.inbound) / max}px"></div></div>`).join('') || '<span class="sec" style="align-self:center">No messages in this range</span>';
+    $('chartFor').textContent = userId ? (lastRows.find((r) => r.user_id === userId) || {}).name || userId : 'Whole sub-account';
+  }
+  async function load() {
+    if (!loc) {
+      $('location').style.display = 'none'; $('share').style.display = 'none'; $('locLabel').textContent = 'How every sub-account is using GHL';
+      $('overview').innerHTML = `<div class="status"><span class="spin"></span>Loading…</div>`;
+      const rows = await api(`/api/usage/overview?${qs()}`);
+      if (!Array.isArray(rows)) { $('overview').innerHTML = `<div class="empty">${RGS.glyph('alert', '--t-orange')}<b>Couldn't load usage</b>${esc(rows.error || '')}</div>`; return; }
+      const cnt = (t) => rows.filter((r) => r.health === t).length;
+      const tile = (k, v, c) => `<div class="tile"><div class="k">${c ? `<span class="dot" style="background:${c}"></span>` : ''}${k}</div><div class="v">${v}</div></div>`;
+      $('overview').innerHTML = `<div class="tiles">${tile('Sub-accounts', N(rows.length))}${tile('Active', N(cnt('active')), 'var(--green)')}${tile('Slowing down', N(cnt('slowing')), 'var(--orange)')}${tile('Quiet', N(cnt('dormant')), 'var(--red)')}${tile('Never used', N(cnt('never')), 'var(--ter)')}${tile('Seats with no activity', N(rows.reduce((a, r) => a + r.idle_seats, 0)))}</div>
+        <div class="gh">Agency checkup<span class="end">Tap a sub-account to see its team</span></div>
+        <div class="table-wrap num"><table id="ov"><thead></thead><tbody></tbody></table></div>
+        <div class="note2">Active: sent something in the last 30 days. Slowing down: the last 30 days were under half of the 30 before. Quiet: nothing in 30 days. Never used: no activity on record. Seats with no activity: users who sent nothing in 30 days.</div>`;
+      const cols = [{ k: 'name', l: 'Sub-account', f: (r) => `<b>${esc(r.name || 'Unnamed')}</b><span class="sub mono">${esc(r.location_id)}</span>` }, { k: 'health', l: 'Health', f: (r) => pill(r.health, { active: 'ok', slowing: 'warn', dormant: 'bad' }) }, { k: 'users', l: 'Users' }, { k: 'active_users', l: 'Active' }, { k: 'idle_seats', l: 'Idle seats' }, { k: 'contacts', l: 'Contacts' }, { k: 'contacts_new', l: 'New' },
+        { k: 'outbound', l: 'Out' }, { k: 'inbound', l: 'In' }, { k: 'calls', l: 'Calls' }, { k: 'talk_seconds', l: 'Talk', f: (r) => mins(r.talk_seconds) }, { k: 'won', l: 'Won' }, { k: 'last_activity', l: 'Last activity', f: (r) => D(r.last_activity) }, { k: 'last_export', l: 'Last backup', f: (r) => D(r.last_export) }];
+      render = () => table($('ov'), cols, rows, (id) => { loc = id; $('locSel').value = id; sortKey = null; history.replaceState(null, '', `?loc=${encodeURIComponent(id)}`); load(); }); render(); return;
+    }
+    $('overview').innerHTML = ''; $('location').style.display = ''; $('locLabel').textContent = $('locSel').selectedOptions[0]?.value === loc ? $('locSel').selectedOptions[0].textContent : loc;
+    $('kpis').innerHTML = Array.from({ length: 12 }, () => '<div class="tile"><div class="skel" style="width:60%;margin:4px 0 12px"></div><div class="skel" style="width:40%;height:18px"></div></div>').join('');
+    const [s, users] = await Promise.all([api(`/api/locations/${encodeURIComponent(loc)}/usage?${qs()}`), api(`/api/locations/${encodeURIComponent(loc)}/usage/users?${qs()}`)]);
+    if (s.error || !s.messages) { $('location').style.display = 'none'; $('overview').innerHTML = `<div class="empty">${RGS.glyph('alert', '--t-orange')}<b>Couldn't load usage</b>${esc(s.error || '')}</div>`; return; }
+    $('kpis').innerHTML = [['Contacts created', N(s.contacts.created)], ['Messages sent', N(s.messages.outbound)], ['Messages received', N(s.messages.inbound)], ['Calls', N(s.messages.calls)], ['Talk time', mins(s.messages.talk_seconds)],
+      ['Active users', N(s.messages.active_users)], ['Contacts reached', N(s.messages.contacts_touched)], ['Opportunities created', N(s.opportunities.created)], ['Opportunities won', N(s.opportunities.won)], ['Won value', `$${N(Math.round(s.opportunities.won_value))}`], ['Open opportunities', N(s.opportunities.open_now)], ['Appointments', N(s.appointments.booked)]]
+      .map(([l, v]) => `<div class="tile"><div class="k">${l}</div><div class="v">${v}</div></div>`).join('');
+    const chans = [...new Set(s.channels.map((c) => c.channel))];
+    $('channels').innerHTML = `<table><thead><tr><th>Channel</th><th>Sent</th><th>Received</th></tr></thead><tbody>${chans.map((ch) => `<tr><td>${esc(ch)}</td><td>${N((s.channels.find((c) => c.channel === ch && c.direction === 'outbound') || {}).n)}</td><td>${N((s.channels.find((c) => c.channel === ch && c.direction === 'inbound') || {}).n)}</td></tr>`).join('') || '<tr><td colspan="3" class="sec">No messages in this range</td></tr>'}</tbody></table>`;
+    $('share').style.display = '';
+    const cols = [{ k: 'name', l: 'User', f: (r) => `<b>${esc(r.name || 'Unknown user')}</b><span class="sub">${esc(r.email || r.user_id)}${r.role ? ' · ' + esc(r.role) : ''}</span>` }, { k: 'status', l: 'Status', f: (r) => pill(r.status, { active: 'ok', low: 'warn', inactive: 'bad' }) }, { k: 'sms_out', l: 'Texts' }, { k: 'email_out', l: 'Emails' }, { k: 'social_out', l: 'Social' }, { k: 'calls_out', l: 'Calls out' }, { k: 'calls_in', l: 'Calls in' },
+      { k: 'talk_seconds', l: 'Talk', f: (r) => mins(r.talk_seconds) }, { k: 'total_out', l: 'Total sent' }, { k: 'contacts_touched', l: 'Reached' }, { k: 'contacts_created', l: 'Created' }, { k: 'contacts_assigned', l: 'Assigned' }, { k: 'opps_created', l: 'Opps' }, { k: 'opps_won', l: 'Won' }, { k: 'won_value', l: 'Won $', f: (r) => '$' + N(Math.round(r.won_value)) },
+      { k: 'appointments', l: 'Appts' }, { k: 'notes', l: 'Notes' }, { k: 'tasks', l: 'Tasks' }, { k: 'contact_edits', l: 'Edits' }, { k: 'stage_moves', l: 'Stage moves' }, { k: 'active_days', l: 'Active days' }, { k: 'first_activity', l: 'First', f: (r) => D(r.first_activity) }, { k: 'last_activity', l: 'Last', f: (r) => D(r.last_activity) }];
+    if (!sortKey) sortKey = 'total_out';
+    const list = Array.isArray(users) ? users : [];
+    render = () => table($('users'), cols, list, (id) => { selUser = selUser === id ? null : id; render(); chart(selUser); }); render(); chart(selUser);
+  }
+
+  $('share').onclick = async () => {
+    const r = await api(`/api/locations/${encodeURIComponent(loc)}/report-token`, { method: 'POST' });
+    if (r.error) return RGS.toast(r.error, { error: true });
+    RGS.copy(r.url, 'Report link');
+    const box = V.openSheet(`${V.head('link', '--t-green', 'Owner report link', 'A read-only activity report the owner can open without logging in')}
+      <div class="sheet-bd"><div class="grp"><div class="code-box"><span class="mono">${esc(r.url)}</span><button class="icon-btn" id="rcopy" title="Copy">${RGS.icon('copy')}</button></div></div>
+        <p class="sec" style="font-size:12.5px;margin-top:-10px">Copied. Making a new link turns off the old one.</p></div>
+      <div class="sheet-ft"><button class="btn tinted danger" id="roff" style="margin-right:auto">Turn off link</button><a class="btn tinted" href="${esc(r.url)}" target="_blank" rel="noopener">Open</a><button class="btn" data-close>Done</button></div>`);
+    box.querySelector('#rcopy').onclick = () => RGS.copy(r.url, 'Report link');
+    box.querySelector('#roff').onclick = async () => { await api(`/api/locations/${encodeURIComponent(loc)}/report-token`, { method: 'DELETE' }); V.closeSheet(); RGS.toast('Report link turned off'); };
+  };
+  $('csv').onclick = () => {
+    if (!lastCols.length) return;
+    const lines = [lastCols.map((c) => V.csvCell(c.l)).join(',')].concat(lastRows.map((r) => lastCols.map((c) => V.csvCell(r[c.k])).join(',')));
+    V.downloadText(`usage-${loc || 'agency'}.csv`, lines.join('\n')); RGS.toast('CSV downloaded');
+  };
+
+  V.nav('usage');
+  RGS.ready.then(() => {
+    $('csv').innerHTML = RGS.icon('download');
+    $('share').innerHTML = `${RGS.icon('link')}Owner report link`;
+    RGS.onLocation((l) => { if (l && [...$('locSel').options].some((o) => o.value === l.locationId)) { $('locSel').value = l.locationId; $('locSel').onchange(); } });
+    api('/api/locations').then((ls) => {
+      if (Array.isArray(ls)) $('locSel').innerHTML = '<option value="">All sub-accounts</option>' + ls.map((l) => `<option value="${esc(l.location_id)}">${esc(l.name || l.location_id)}</option>`).join('');
+      $('locSel').value = loc;
+      setRange(30); load();
+    });
+  });
+})();
 </script>
 </body>
 </html>

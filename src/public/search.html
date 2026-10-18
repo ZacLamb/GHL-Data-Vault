@@ -1,87 +1,148 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>GHL Vault · Master search</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/vault.css">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Search · Data Vault · RGS Tools</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="/config.js"></script>
-<script src="/vault.js" data-page="search"></script>
+<script src="/ui/rgs-shell.js"></script>
+<link rel="stylesheet" href="/ui/rgs-ui.css">
+<link rel="stylesheet" href="/vault.css">
+<script src="/vault.js"></script>
 <style>
-  main{max-width:1500px}
-  .totals{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}
-  .totals span{display:inline-flex;align-items:baseline;gap:7px;padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--dim);font-size:12.5px}
-  .totals b{color:var(--ink);font-family:"JetBrains Mono",monospace;font-weight:600}
-  .bar{display:flex;gap:10px;align-items:stretch;margin-bottom:10px}
-  input#q{flex:1;font-size:16px;padding:12px 16px;border-radius:10px}
-  .bar select{min-width:200px}
-  .bar button{padding:0 22px;border-radius:10px}
-  .tabs{display:flex;gap:4px;margin:16px 0 10px}
-  .tab{padding:7px 14px;border-radius:7px;cursor:pointer;color:var(--dim);font-size:13px;font-weight:500}
-  .tab:hover{background:var(--hover);color:var(--ink)}.tab.on{color:var(--ink);background:var(--panel-2);box-shadow:inset 0 0 0 1px var(--line)}
-  .tab span{color:var(--dim);font-family:"JetBrains Mono",monospace;font-size:11.5px;margin-left:4px}
-  td{vertical-align:top}tr.r{cursor:pointer}
-  #drawer{position:fixed;top:0;right:0;bottom:0;width:min(680px,100%);transform:translateX(100%);transition:.22s;overflow:auto;padding:26px 30px;z-index:30;box-shadow:-20px 0 60px -30px rgba(0,0,0,.5)}
-  #drawer.open{transform:none}
-  #drawer h3{font:600 10.5px/1 "Schibsted Grotesk",sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin:24px 0 10px}
-  #drawer .close{position:absolute;top:18px;right:20px}
+  .sform { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+  .sform .search { flex: 1; min-width: 240px; }
+  .sform .search input { height: 40px; font-size: 15px; border-radius: 10px; padding-left: 36px; }
+  .sform .search svg.i { top: 12px; left: 12px; width: 17px; height: 17px; }
+  .sform select { width: 230px; height: 40px; border-radius: 10px; }
+  .sform .btn { height: 40px; padding: 0 22px; border-radius: 10px; }
+  @media (max-width: 600px) { .sform select, .sform .btn { flex: 1; width: auto; } }
+  .tiles { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  #tabs { margin: 10px 0 14px; }
+  #tabs .n { color: var(--sec); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .li .end .val { font-variant-numeric: tabular-nums; }
+  .li .loc { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 860px) { .li .loc, .li .hide-md { display: none; } }
+  .insp-hero .av.xl { width: 62px; height: 62px; border-radius: 50%; font-size: 22px; margin: 0 auto 12px; }
+  .insp .grp { margin-bottom: 18px; } .insp .gh { padding-left: 4px; padding-right: 4px; }
+  .li .end a.icon-btn { color: var(--blue); }
 </style>
 </head>
 <body>
-<main>
-  <div class="pagehead"><h1>Master search</h1><span class="sub">every contact and file across all sub-accounts</span></div>
-  <div class="totals" id="totals"></div>
-  <form class="bar" id="f">
-    <input id="q" placeholder="Name, company, email, phone, contact ID, filename, EIN, any custom field value…" autofocus>
-    <select id="loc"><option value="">all sub-accounts</option></select>
-    <button type="submit" class="btn primary">Search</button>
-  </form>
-  <div class="hint">Searches the vault copy of every crawled sub-account. Exact email or contact ID matches come first; phone numbers match on digits regardless of formatting. Click a row for the full record, documents, and whether the same person exists in other accounts.</div>
-  <div class="tabs"><div class="tab on" data-t="contacts">Contacts <span id="nc"></span></div><div class="tab" data-t="files">Files <span id="nf"></span></div></div>
-  <div class="card"><div id="results" class="empty">Type something and press Enter.</div><div class="pager" id="pager"></div></div>
-</main>
-<div id="drawer" class="drawer"><button class="close" onclick="closeDrawer()">✕</button><div id="dbody"></div></div>
+  <div class="toolbar-top">
+    <div class="seg" id="nav"></div>
+    <span class="spacer"></span>
+  </div>
+  <div class="split" id="split">
+    <div class="wrap">
+      <div class="page-head"><div><h1>Search</h1><p>Every contact and file across all your backed-up sub-accounts</p></div></div>
+      <div class="tiles" id="totals"></div>
+      <form class="sform" id="f">
+        <div class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" id="q" placeholder="Name, company, email, phone, contact ID, file name, any custom field…" autocomplete="off" autofocus></div>
+        <select id="loc" aria-label="Sub-account"><option value="">All sub-accounts</option></select>
+        <button type="submit" class="btn">Search</button>
+      </form>
+      <div class="foot" style="margin:0 0 4px">Exact email or contact ID matches come first. Phone numbers match on the digits, however they're written. Open a contact to see its full record, documents, and whether the same person is in other sub-accounts.</div>
+      <div class="seg" id="tabs"><button class="on" data-t="contacts" type="button">Contacts <span class="n" id="nc"></span></button><button data-t="files" type="button">Files <span class="n" id="nf"></span></button></div>
+      <div id="results"><div class="empty"><b>Search your vault</b>Type something and press Enter.</div></div>
+      <div class="pager" id="pager"></div>
+    </div>
+    <aside class="insp" id="insp"></aside>
+  </div>
+
 <script>
-const $=s=>document.querySelector(s);const api=p=>fetch(p).then(r=>r.json());const N=n=>Number(n||0).toLocaleString();
-const fmtB=n=>{n=Number(n||0);const u=['B','KB','MB','GB','TB'];let i=0;while(n>=1024&&i<4){n/=1024;i++}return n.toFixed(i?1:0)+' '+u[i]};
-const D=s=>s?new Date(s).toLocaleDateString():'—';const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-let tab='contacts',page=0,LIMIT=50,last={contacts:null,files:null};
-api('/api/search/totals').then(t=>$('#totals').innerHTML=`<span><b>${N(t.locations)}</b> sub-accounts</span><span><b>${N(t.contacts)}</b> contacts</span><span><b>${N(t.files)}</b> documents</span><span><b>${fmtB(t.bytes)}</b></span>`);
-api('/api/locations').then(ls=>$('#loc').innerHTML='<option value="">all sub-accounts</option>'+ls.map(l=>`<option value="${l.location_id}">${esc(l.name||l.location_id)}</option>`).join(''));
-document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{tab=t.dataset.t;document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===t));page=0;run()});
-$('#f').onsubmit=e=>{e.preventDefault();page=0;last={contacts:null,files:null};run(true)};
-async function run(both){
-  const qv=$('#q').value.trim();if(!qv)return;const loc=$('#loc').value;
-  const qs=`q=${encodeURIComponent(qv)}&loc=${encodeURIComponent(loc)}&limit=${LIMIT}&offset=${page*LIMIT}`;
-  if(both){const [c,f]=await Promise.all([api('/api/search/contacts?'+qs),api('/api/search/files?'+qs)]);last.contacts=c;last.files=f;$('#nc').textContent=`(${N(c.total)})`;$('#nf').textContent=`(${N(f.total)})`}
-  else{last[tab]=await api(`/api/search/${tab}?`+qs)}
-  render();
-}
-function render(){
-  const r=last[tab];if(!r)return;const el=$('#results');
-  if(!r.rows.length){el.className='empty';el.textContent='No matches.';$('#pager').innerHTML='';return}el.className='';
-  if(tab==='contacts')el.innerHTML=`<table><thead><tr><th>Contact</th><th>Company</th><th>Sub-account</th><th>Location</th><th>Docs</th><th>Opps</th><th>Assigned</th><th>Added</th><th>Last msg</th></tr></thead><tbody>${r.rows.map(c=>`<tr class="r" data-loc="${c.location_id}" data-id="${c.contact_id}"><td><b>${esc([c.first_name,c.last_name].filter(Boolean).join(' ')||'—')}</b><div class="id">${esc(c.email||'')} ${esc(c.phone||'')}</div></td><td>${esc(c.company||'')}</td><td><span class="locbadge">${esc(c.location_name||c.location_id)}</span></td><td class="id">${esc([c.city,c.state].filter(Boolean).join(', '))}</td><td><b>${c.docs}</b></td><td>${c.opps}</td><td class="id">${esc(c.assigned_name||'')}</td><td class="id">${D(c.date_added)}</td><td class="id">${D(c.last_message)}</td></tr>`).join('')}</tbody></table>`;
-  else el.innerHTML=`<table><thead><tr><th>File</th><th>Field</th><th>Contact</th><th>Sub-account</th><th>Size</th><th>Uploaded</th><th></th></tr></thead><tbody>${r.rows.map(f=>`<tr><td><b>${esc(f.original_filename||f.r2_key.split('/').pop())}</b><div class="id">${esc(f.mime_type||'')}</div></td><td class="id">${esc(f.field_name||f.source)}</td><td><a href="#" data-loc="${f.location_id}" data-id="${f.contact_id||''}" class="cl">${esc([f.first_name,f.last_name].filter(Boolean).join(' ')||f.company||f.contact_id||'—')}</a></td><td><span class="locbadge">${esc(f.location_name||f.location_id)}</span></td><td class="id">${fmtB(f.size_bytes)}</td><td class="id">${D(f.uploaded_at)}</td><td><a href="/api/files/${f.id}/download">download</a></td></tr>`).join('')}</tbody></table>`;
-  const pages=Math.max(1,Math.ceil(r.total/LIMIT));$('#pager').innerHTML=`<span>${N(r.total)} results · page ${page+1} / ${pages}</span><button class="btn sm" ${page<=0?'disabled':''} onclick="page--;run()">‹</button><button class="btn sm" ${page>=pages-1?'disabled':''} onclick="page++;run()">›</button>`;
-  el.querySelectorAll('tr.r,.cl').forEach(x=>x.onclick=e=>{e.preventDefault();if(x.dataset.id)openContact(x.dataset.loc,x.dataset.id)});
-}
-async function openContact(loc,id){
-  const d=await api(`/api/search/contact/${loc}/${id}`);const c=d.contact;if(!c)return;
-  const custom=Object.entries(c.custom||{}).filter(([,v])=>v!==''&&v!=null);
-  $('#dbody').innerHTML=`<h2>${esc([c.first_name,c.last_name].filter(Boolean).join(' ')||c.company||id)}</h2><span class="locbadge">${esc(c.location_name||loc)}</span> <span class="id">${id}</span>
-    <p><a target="_blank" href="https://app.gohighlevel.com/v2/location/${loc}/contacts/detail/${id}">open in GHL ↗</a></p>
-    <h3>Record</h3><div class="kv">${[['Company',c.company],['Email',c.email],['Phone',c.phone],['Address',[c.address,c.city,c.state,c.postal_code].filter(Boolean).join(', ')],['Tags',(c.tags||[]).join(', ')],['Assigned to',c.assigned_name||c.assigned_to],['Source',c.source],['Added',D(c.date_added)],['Updated',D(c.date_updated)]].map(([k,v])=>`<span>${k}</span><span>${esc(v||'—')}</span>`).join('')}</div>
-    ${custom.length?`<h3>Custom fields</h3><div class="kv">${custom.map(([k,v])=>`<span>${esc(k)}</span><span>${esc(Array.isArray(v)?v.join(', '):v)}</span>`).join('')}</div>`:''}
-    <h3>Documents (${d.files.length})</h3>${d.files.map(f=>`<div class="file"><span>${esc(f.field_name||f.source)} <span class="id">· ${esc(f.original_filename||'')} · ${fmtB(f.size_bytes)} · ${D(f.uploaded_at)}</span></span><a href="/api/files/${f.id}/download">download</a></div>`).join('')||'<span class="id">none in vault</span>'}
-    <h3>Opportunities (${d.opportunities.length})</h3>${d.opportunities.map(o=>`<div class="file"><span>${esc(o.status)} · $${N(o.monetary_value)}</span><span class="id">${D(o.created_at)}</span></div>`).join('')||'<span class="id">none</span>'}
-    <h3>Messages</h3>${d.messages.map(m=>`<div class="file"><span>${esc(m.channel)} ${esc(m.direction)}</span><span class="id">${m.n} · last ${D(m.last)}</span></div>`).join('')||'<span class="id">none captured</span>'}
-    <h3>Also found in</h3>${d.alsoIn.map(a=>`<div class="file"><span><span class="locbadge">${esc(a.location_name||a.location_id)}</span> ${esc([a.first_name,a.last_name].filter(Boolean).join(' ')||a.company||'')}</span><a href="#" onclick="openContact('${a.location_id}','${a.contact_id}');return false">view</a></div>`).join('')||'<span class="id">no other sub-account has this email or phone</span>'}`;
-  $('#drawer').classList.add('open');
-}
-function closeDrawer(){$('#drawer').classList.remove('open')}
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer()});
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const { esc, api, N, fmtB, D } = V;
+  let I = () => '';
+  let tab = 'contacts', page = 0, selKey = null; const LIMIT = 50; let last = { contacts: null, files: null };
+  const name = (c) => [c.first_name, c.last_name].filter(Boolean).join(' ');
+
+  $('f').onsubmit = (e) => { e.preventDefault(); page = 0; last = { contacts: null, files: null }; run(true); };
+  $('tabs').querySelectorAll('button').forEach((t) => t.onclick = () => { tab = t.dataset.t; $('tabs').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === t)); page = 0; run(); });
+
+  async function run(both) {
+    const qv = $('q').value.trim(); if (!qv) return;
+    const qs = `q=${encodeURIComponent(qv)}&loc=${encodeURIComponent($('loc').value)}&limit=${LIMIT}&offset=${page * LIMIT}`;
+    $('results').innerHTML = `<div class="status"><span class="spin"></span>Searching…</div>`; $('pager').innerHTML = '';
+    if (both) {
+      const [c, f] = await Promise.all([api('/api/search/contacts?' + qs), api('/api/search/files?' + qs)]);
+      last.contacts = c; last.files = f; $('nc').textContent = c.total != null ? N(c.total) : ''; $('nf').textContent = f.total != null ? N(f.total) : '';
+    } else last[tab] = await api(`/api/search/${tab}?` + qs);
+    render();
+  }
+  function render() {
+    const r = last[tab]; if (!r) return; const el = $('results');
+    if (r.error) { el.innerHTML = `<div class="empty">${RGS.glyph('alert', '--t-orange')}<b>Search didn't work</b>${esc(r.error)}</div>`; return; }
+    if (!r.rows.length) { el.innerHTML = `<div class="empty">${RGS.glyph('search', '--t-gray')}<b>No matches</b>Nothing in the vault matches “${esc($('q').value.trim())}”.</div>`; $('pager').innerHTML = ''; return; }
+    if (tab === 'contacts') el.innerHTML = `<div class="grp card">${r.rows.map((c) => {
+      const k = c.location_id + '|' + c.contact_id;
+      const sub = [c.company, c.email, c.phone, [c.city, c.state].filter(Boolean).join(', ')].filter(Boolean).map(esc).join(' · ');
+      return `<div class="li click${k === selKey ? ' sel' : ''}" data-loc="${esc(c.location_id)}" data-id="${esc(c.contact_id)}">${RGS.avatarHtml(name(c) || c.company || '?', 'round')}<div class="main"><b>${esc(name(c) || c.company || '—')}</b><span class="sub">${sub || '&nbsp;'}</span></div>
+        <span class="end"><span class="val hide-md" title="Documents · opportunities">${N(c.docs)} doc${c.docs === 1 ? '' : 's'}${c.opps ? ` · ${N(c.opps)} opp${c.opps === 1 ? '' : 's'}` : ''}</span><span class="pill loc">${esc(c.location_name || c.location_id)}</span><span class="chev">${I('right')}</span></span></div>`;
+    }).join('')}</div>`;
+    else el.innerHTML = `<div class="grp card">${r.rows.map((f) => {
+      const who = name(f) || f.company || f.contact_id;
+      return `<div class="li">${RGS.glyph(/image/.test(f.mime_type || '') ? 'image' : 'file', /image/.test(f.mime_type || '') ? '--t-pink' : '--t-sky')}<div class="main"><b>${esc(f.original_filename || (f.r2_key || '').split('/').pop())}</b>
+        <span class="sub">${esc(f.field_name || f.source)}${who ? ` · ${f.contact_id ? `<a href="#" data-cl="${esc(f.location_id)}" data-id="${esc(f.contact_id)}">${esc(who)}</a>` : esc(who)}` : ''} · ${fmtB(f.size_bytes)}${f.uploaded_at ? ' · ' + D(f.uploaded_at) : ''}</span></div>
+        <span class="end"><span class="pill loc">${esc(f.location_name || f.location_id)}</span><a class="icon-btn" href="/api/files/${f.id}/download" title="Download">${I('download')}</a></span></div>`;
+    }).join('')}</div>`;
+    const pages = Math.max(1, Math.ceil(r.total / LIMIT));
+    $('pager').innerHTML = `<span>${N(r.total)} results · page ${page + 1} of ${N(pages)}</span><button class="btn sm tinted" id="pp" ${page <= 0 ? 'disabled' : ''}>Previous</button><button class="btn sm tinted" id="pn" ${page >= pages - 1 ? 'disabled' : ''}>Next</button>`;
+    $('pp').onclick = () => { page--; run(); }; $('pn').onclick = () => { page++; run(); };
+  }
+
+  async function openContact(loc, id) {
+    selKey = loc + '|' + id;
+    document.querySelectorAll('#results .li[data-id]').forEach((x) => x.classList.toggle('sel', x.dataset.loc + '|' + x.dataset.id === selKey));
+    $('split').classList.add('has-insp');
+    $('insp').innerHTML = `<div class="status"><span class="spin"></span>Loading…</div>`;
+    const d = await api(`/api/search/contact/${encodeURIComponent(loc)}/${encodeURIComponent(id)}`); const c = d.contact;
+    if (!c) { $('insp').innerHTML = `<div class="close"><span></span><button class="btn plain" id="inspClose">Done</button></div><div class="empty"><b>Couldn't open this contact</b>${esc(d.error || '')}</div>`; return; }
+    const custom = Object.entries(c.custom || {}).filter(([, v]) => v !== '' && v != null);
+    const kv = (rows) => `<div class="grp card kv">${rows.map(([k, v]) => `<div class="li flush"><div class="main"><span class="lbl">${esc(k)}</span><span class="val">${esc(v || '—')}</span></div></div>`).join('')}</div>`;
+    const full = name(c) || c.company || id;
+    $('insp').innerHTML = `<div class="close"><span></span><button class="btn plain" id="inspClose">Done</button></div>
+      <div class="insp-hero">${RGS.avatarHtml(full, 'xl')}<h2>${esc(full)}</h2><p>${esc(c.location_name || loc)}</p>
+        <div class="qa"><a href="${V.ghlContactUrl(loc, id)}" target="_blank" rel="noopener">${I('external')}Open GHL</a><button data-copy="${esc(id)}" data-what="Contact ID">${I('hash')}Copy ID</button>${c.email ? `<button data-copy="${esc(c.email)}" data-what="Email">${I('mail')}Copy email</button>` : ''}</div></div>
+      <div class="gh">Record</div>${kv([['Company', c.company], ['Email', c.email], ['Phone', c.phone], ['Address', [c.address, c.city, c.state, c.postal_code].filter(Boolean).join(', ')], ['Tags', (c.tags || []).join(', ')], ['Assigned to', c.assigned_name || c.assigned_to], ['Source', c.source], ['Added', D(c.date_added)], ['Updated', D(c.date_updated)]])}
+      ${custom.length ? `<div class="gh">Custom fields</div>${kv(custom.map(([k, v]) => [k, Array.isArray(v) ? v.join(', ') : String(v)]))}` : ''}
+      <div class="gh">Documents<span class="end">${N(d.files.length)}</span></div>
+      <div class="grp card">${d.files.map((f) => `<div class="li">${RGS.glyph('file', '--t-sky')}<div class="main"><b>${esc(f.field_name || f.source)}</b><span class="sub">${esc(f.original_filename || '')} · ${fmtB(f.size_bytes)}${f.uploaded_at ? ' · ' + D(f.uploaded_at) : ''}</span></div><span class="end"><a class="icon-btn" href="/api/files/${f.id}/download" title="Download" style="color:var(--blue)">${I('download')}</a></span></div>`).join('') || '<div class="li flush sec">None in the vault</div>'}</div>
+      <div class="gh">Opportunities<span class="end">${N(d.opportunities.length)}</span></div>
+      <div class="grp card">${d.opportunities.map((o) => `<div class="li flush"><div class="main"><b>$${N(o.monetary_value)}</b><span class="sub">${D(o.created_at)}</span></div><span class="end"><span class="pill ${o.status === 'won' ? 'ok' : o.status === 'lost' ? 'bad' : ''}">${esc(o.status)}</span></span></div>`).join('') || '<div class="li flush sec">None</div>'}</div>
+      <div class="gh">Messages</div>
+      <div class="grp card">${d.messages.map((m) => `<div class="li flush"><div class="main"><b>${esc(m.channel)} · ${esc(m.direction)}</b><span class="sub">Last ${D(m.last)}</span></div><span class="end val">${N(m.n)}</span></div>`).join('') || '<div class="li flush sec">None saved</div>'}</div>
+      <div class="gh">Also in</div>
+      <div class="grp card">${d.alsoIn.map((a) => `<div class="li click" data-also="${esc(a.location_id)}" data-id="${esc(a.contact_id)}">${RGS.avatarHtml(a.location_name || a.location_id, 'sm')}<div class="main"><b>${esc(a.location_name || a.location_id)}</b><span class="sub">${esc(name(a) || a.company || '')}</span></div><span class="end"><span class="chev">${I('right')}</span></span></div>`).join('') || '<div class="li flush sec">No other sub-account has this email or phone</div>'}</div>`;
+    $('insp').scrollTop = 0;
+  }
+  function closeInsp() { selKey = null; $('split').classList.remove('has-insp'); document.querySelectorAll('#results .li.sel').forEach((x) => x.classList.remove('sel')); }
+
+  document.addEventListener('click', (e) => {
+    const cp = e.target.closest('[data-copy]'); if (cp) { RGS.copy(cp.dataset.copy, cp.dataset.what || ''); return; }
+    if (e.target.id === 'inspClose') return closeInsp();
+    const cl = e.target.closest('[data-cl]'); if (cl) { e.preventDefault(); return openContact(cl.dataset.cl, cl.dataset.id); }
+    const al = e.target.closest('[data-also]'); if (al) return openContact(al.dataset.also, al.dataset.id);
+    const row = e.target.closest('#results .li[data-id]'); if (row) return openContact(row.dataset.loc, row.dataset.id);
+    if (e.target === $('split')) closeInsp();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (V.sheetOpen()) return;
+    const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName);
+    if (e.key === '/' && !typing) { e.preventDefault(); $('q').focus(); }
+    if (e.key === 'Escape') closeInsp();
+  });
+
+  V.nav('search');
+  RGS.ready.then(() => {
+    I = (n) => RGS.icon(n);
+    $('results').innerHTML = `<div class="empty">${RGS.glyph('search', '--t-blue')}<b>Search your vault</b>Type something and press Enter.</div>`;
+    api('/api/search/totals').then((t) => { if (t.error) return; const tile = (k, v) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div></div>`; $('totals').innerHTML = tile('Sub-accounts', N(t.locations)) + tile('Contacts', V.short(t.contacts)) + tile('Documents', V.short(t.files)) + tile('Stored', fmtB(t.bytes)); });
+    api('/api/locations').then((ls) => { if (!Array.isArray(ls)) return; $('loc').innerHTML = '<option value="">All sub-accounts</option>' + ls.map((l) => `<option value="${esc(l.location_id)}">${esc(l.name || l.location_id)}</option>`).join(''); });
+  });
+})();
 </script>
 </body>
 </html>
