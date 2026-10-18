@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Documents · Data Vault · RGS Tools</title>
+<title>Documents · Backup & Insights · RGS Tools</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="/config.js"></script>
@@ -205,17 +205,17 @@
     api('/api/locations').then((ls) => { const l = Array.isArray(ls) && ls.find((x) => x.location_id === loc); if (l) $('locLabel').textContent = `${l.name || 'Unnamed sub-account'} · ${loc}`; });
     api(`/api/locations/${encodeURIComponent(loc)}/pool`).then((p) => { if (p.error) return; $('pkgSize').innerHTML = p.sizes.map((s) => `<option value="${s}">${s >= 1000 ? s / 1000 + 'k' : s}</option>`).join(''); $('cols').innerHTML = p.standardColumns.map((i) => `<label><input type="checkbox" value="${esc(i)}" checked> ${esc(i)}</label>`).join(''); });
     $('kpis').innerHTML = Array.from({ length: 8 }, () => '<div class="tile"><div class="skel" style="width:60%;margin:4px 0 12px"></div><div class="skel" style="width:40%;height:20px"></div></div>').join('');
-    loadAnalytics().catch((e) => { $('body').innerHTML = `<div class="empty">${RGS.glyph('alert', '--t-orange')}<b>Couldn’t load documents</b>${esc(e.message)}<div style="margin-top:14px"><a class="btn tinted lg" href="/app">Back to Data Vault</a></div></div>`; });
+    loadAnalytics().catch((e) => { $('body').innerHTML = `<div class="empty">${RGS.glyph('alert', '--t-orange')}<b>Couldn’t load documents</b>${esc(e.message)}<div style="margin-top:14px"><a class="btn tinted lg" href="/app">Back to Backup & Insights</a></div></div>`; });
     run(1);
   }
 
   V.nav('vault');
   RGS.ready.then(() => {
-    $('back').innerHTML = `${RGS.icon('left')}Data Vault`;
+    $('back').innerHTML = `${RGS.icon('left')}Backup & Insights`;
     // Switching sub-account in the sidebar opens that sub-account's documents.
     RGS.onLocation((l) => { if (l) location.search = '?loc=' + encodeURIComponent(l.locationId); });
     if (!loc) loc = RGS.location()?.locationId || null;
-    if (!loc) { $('body').innerHTML = `<div class="empty">${RGS.glyph('folder', '--t-orange')}<b>Choose a sub-account</b>Pick one in the sidebar, or open Documents from a sub-account in Data Vault.<div style="margin-top:14px"><a class="btn tinted lg" href="/app">Open Data Vault</a></div></div>`; return; }
+    if (!loc) { $('body').innerHTML = `<div class="empty">${RGS.glyph('folder', '--t-orange')}<b>Choose a sub-account</b>Pick one in the sidebar, or open Documents from a sub-account in Backup & Insights.<div style="margin-top:14px"><a class="btn tinted lg" href="/app">Open Backup & Insights</a></div></div>`; return; }
     start();
   });
 })();
