@@ -208,7 +208,32 @@
     let html = '';
     if (!b.connected.length) html = `<div class="note warn">${I('link')}<span>No sub-accounts are connected to your account yet. Connect them on the hub, then add them here.</span><a class="btn sm act" href="${esc((b.hubUrl || V.HUB) + '/app#connect')}">Connect</a></div>`;
     else if (notIn.length && (state.locs || []).length) html = `<div class="note">${I('info')}<span>${N(notIn.length)} connected sub-account${notIn.length === 1 ? " isn't" : "s aren't"} in the vault yet.</span><button class="btn sm tinted act" data-act="add">Add</button></div>`;
+    const o = state.orphans || [];
+    if (o.length) html = `<div class="note warn">${I('alert')}<span><b>${N(o.length)} sub-account${o.length === 1 ? '' : 's'} from before the hub ${o.length === 1 ? "isn't" : "aren't"} linked to your account</b>, so ${o.length === 1 ? "it's" : "they're"} hidden here. ${o.length === 1 ? 'Its backup is' : 'Their backups are'} safe: ${o.slice(0, 4).map((x) => esc(x.name || x.location_id)).join(', ')}${o.length > 4 ? ` and ${N(o.length - 4)} more` : ''}.</span><button class="btn sm act" data-act="linkOrphans">Link them</button></div>` + html;
     $('notes').innerHTML = html;
+  }
+  async function loadOrphans() {
+    const r = await fetch('/api/orphans', { credentials: 'same-origin' }).catch(() => null);
+    if (!r || !r.ok) return; const d = await r.json().catch(() => null);
+    if (Array.isArray(d)) { state.orphans = d; renderNotes(); }
+  }
+  async function linkOrphans() {
+    const o = state.orphans || []; if (!o.length) return;
+    const box = V.openSheet(`${V.head('link', '--t-cyan', 'Link sub-accounts from before the hub', `${N(o.length)} sub-account${o.length === 1 ? '' : 's'}`)}
+      <div class="sheet-bd"><p class="sec">Each saved token is moved from the vault's server to the hub and checked with GHL. Nothing goes through your browser. Backups stay exactly as they are.</p>
+      <div style="text-align:center;padding:18px"><span class="spin"></span></div></div>`);
+    const r = await api('/api/orphans/link', { method: 'POST' });
+    if (r.error) { box.querySelector('.sheet-bd').innerHTML = `<p class="err">${esc(r.error)}</p>`; return; }
+    const hub = (state.backup && state.backup.hubUrl) || V.HUB;
+    box.querySelector('.sheet-bd').innerHTML = `
+      ${r.linked.length ? `<div class="gh">Linked · ${N(r.linked.length)}</div><div class="grp">${r.linked.map((x) => `<div class="li"><div class="main"><b>${esc(x.name || x.location_id)}</b></div><span class="end"><span class="pill ok">Back in the vault</span></span></div>`).join('')}</div>` : ''}
+      ${r.needToken.length ? `<div class="gh">Need a new token · ${N(r.needToken.length)}</div>
+        <p class="sec" style="margin-bottom:8px">Connect these on the hub with their Location ID and a Private Integration Token, then press Add here. Their old backups attach again automatically.</p>
+        <div class="grp">${r.needToken.map((x) => `<div class="li"><div class="main"><b>${esc(x.name || 'Unnamed sub-account')}</b><span class="sub mono" data-copy="${esc(x.location_id)}" data-what="Location ID" style="cursor:pointer">${esc(x.location_id)}</span><span class="sub">${esc(x.reason)}</span></div></div>`).join('')}</div>
+        <div style="margin-top:12px"><a class="btn" href="${esc(hub)}/app#connect">Open Sub-accounts on the hub</a></div>` : ''}
+      ${!r.linked.length && !r.needToken.length ? '<p class="sec">Nothing left to link.</p>' : ''}`;
+    state.orphans = r.needToken.map((x) => ({ location_id: x.location_id, name: x.name }));
+    renderNotes(); loading = false; load(); loadBackup();
   }
 
   // ---------- list ----------
@@ -583,6 +608,7 @@
     closeMenu();
     if (a === 'add') return openAdd();
     if (a === 'importAll') return importAll();
+    if (a === 'linkOrphans') return linkOrphans();
     if (a === 'schedule') return openSchedule();
     if (a === 'allJobs') { ins.showAll = !ins.showAll; const l = state.locs.find((x) => x.location_id === state.sel); if (l) renderHistory(l); return; }
     if (a === 'test') {
@@ -701,6 +727,7 @@
     skeleton();
     // The sidebar's sub-account is shared across tools: picking one there opens it here when it's in the vault.
     RGS.onLocation((loc) => { if (loc && (state.locs || []).some((l) => l.location_id === loc.locationId)) selectLoc(loc.locationId, { scroll: true }); });
+    loadOrphans();
     Promise.all([load(), loadBackup()]).then(() => {
       if (!state.sel && window.innerWidth > 1100) { const cur = RGS.location(); if (cur && (state.locs || []).some((l) => l.location_id === cur.locationId)) selectLoc(cur.locationId); }
     });
