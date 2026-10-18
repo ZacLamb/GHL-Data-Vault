@@ -73,6 +73,13 @@ export async function ingest(jobId, locationId, url, meta = {}) {
         await q(`UPDATE files SET status='skipped', error='no recording' WHERE id=$1`, [existing.id]);
         return { ...existing, status: 'skipped' };
       }
+      // The file no longer exists where GHL points: deleted (404/410), or a carrier/provider link that
+      // has expired (MMS images, Sendillo/Twilio/Wavv recordings). Retrying can't fix these, so record
+      // them as "gone at source" instead of failures that flag the sub-account forever.
+      if (goneAtSource(lastErr?.message || '')) {
+        await q(`UPDATE files SET status='skipped', error=$2 WHERE id=$1`, [existing.id, `gone at source: ${lastErr.message}`.slice(0, 500)]);
+        return { ...existing, status: 'skipped' };
+      }
       throw lastErr || new Error('no download candidates');
     }
 
@@ -105,6 +112,11 @@ export async function ingest(jobId, locationId, url, meta = {}) {
     await q(`UPDATE files SET status='failed', error=$2 WHERE id=$1`, [existing.id, String(err.message).slice(0, 500)]);
     return { ...existing, status: 'failed', error: err.message };
   }
+}
+
+export function goneAtSource(msg) {
+  if (/HTTP (404|410) from /.test(msg)) return true;
+  return /HTTP (400|403) from (\S*cloudfront\.net|sendillo-voice-recordings\.s3\.amazonaws\.com|api\.twilio\.com|file\.wavv\.com|static-assets\.internal\.usercontent\.site)/.test(msg);
 }
 
 // Small concurrency helper so crawlers can fire off several downloads at once.

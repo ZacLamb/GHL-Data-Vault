@@ -229,4 +229,8 @@ export async function migrate() {
   `);
   // One-time cleanup: recordings that 422'd are calls with no recording, not failures.
   await q(`UPDATE files SET status='skipped', error='no recording' WHERE source='recording' AND status='failed' AND error LIKE 'HTTP 422%'`);
+  // One-time cleanup: files that no longer exist at their source (see goneAtSource in storage.js).
+  await q(`UPDATE files SET status='skipped', error='gone at source: ' || error
+           WHERE status='failed' AND (error ~ '^HTTP (404|410) from '
+             OR error ~ '^HTTP (400|403) from ([^ ]*cloudfront\\.net|sendillo-voice-recordings\\.s3\\.amazonaws\\.com|api\\.twilio\\.com|file\\.wavv\\.com|static-assets\\.internal\\.usercontent\\.site)')`);
 }
