@@ -227,6 +227,7 @@
     $('listTitle').textContent = rows.length === state.locs.length ? `Sub-accounts · ${N(rows.length)}` : `${N(rows.length)} of ${N(state.locs.length)} sub-accounts`;
     if (!rows.length) { box.innerHTML = `<div class="empty">${RGS.glyph('search', '--t-gray')}<b>No matches</b>${state.q ? `Nothing matches “${esc(state.q)}”.` : 'No sub-accounts in this group.'}</div>`; $('more').innerHTML = ''; return; }
     if (box.querySelector('.empty')) box.innerHTML = '';
+    box.querySelectorAll('.skrow').forEach((e) => e.remove()); // loading placeholders
     const seen = new Set(); let cursor = null;
     for (const l of shown) {
       seen.add(l.location_id);
