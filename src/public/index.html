@@ -3,10 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>GHL Vault · Locations</title>
+<title>Data Vault · Locations</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/vault.css">
+<script src="/config.js"></script>
 <script src="/vault.js" data-page="locations"></script>
 <style>
   .layout{display:grid;grid-template-columns:minmax(0,1fr) 0;transition:grid-template-columns .2s;min-height:calc(100vh - 54px)}
@@ -68,15 +69,15 @@
     <div class="top">
       <span class="gl">Agency backup</span>
       <span style="flex:1"></span>
-      <a class="btn primary" id="bkConnect" href="/oauth/start" style="display:none">Connect agency app</a>
-      <button class="btn" id="bkTest" title="Mint a sub-account token from the agency credential and read one contact page">Test credential</button>
-      <button class="btn" id="importAgency2" title="Pull every sub-account under the agency into the vault">Import sub-accounts</button>
+      <a class="btn" id="bkConnect" href="#" target="_blank">Connect sub-accounts on the hub</a>
+      <button class="btn" id="bkTest" title="Get a token from the hub for one sub-account and read one contact page">Test credential</button>
+      <button class="btn" id="importAgency2" title="Add every sub-account connected to your hub account">Import connected sub-accounts</button>
       <button class="btn primary" id="bkNow" title="Queue a backup for every enabled sub-account right now">Backup all now</button>
     </div>
     <div class="meta" id="bkStatus"></div>
     <div class="toggles">
       <button class="btn" data-toggle="schedPanel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>Schedule &amp; sources</button>
-      <button class="btn" data-toggle="addPanel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>Add a location manually</button>
+      <button class="btn" data-toggle="addPanel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>Add one sub-account</button>
       <span class="last" id="bkLast"></span>
     </div>
     <div class="panel" id="schedPanel" hidden>
@@ -92,11 +93,9 @@
       <div class="srcs" id="srcs"><span>Manual run sources</span></div>
     </div>
     <div class="panel" id="addPanel" hidden>
-      <input id="locId" placeholder="Location ID" style="min-width:220px">
-      <input id="locName" placeholder="Name (optional)" style="min-width:220px">
-      <input id="locPit" placeholder="Private Integration Token (optional)" style="min-width:360px">
-      <button class="btn primary" id="addLoc">Add / update</button>
-      <span class="hint" style="margin:0;width:100%">Use this for a sub-account outside your agency, or to override the agency app with a per-location Private Integration token.</span>
+      <select id="locId" style="min-width:320px"><option value="">— connected sub-accounts not yet in the vault —</option></select>
+      <button class="btn primary" id="addLoc">Add to vault</button>
+      <span class="hint" style="margin:0;width:100%">Sub-accounts come from your account on the hub. Connect more there — one at a time with a token, or your whole agency in one click.</span>
     </div>
   </div>
 
@@ -141,7 +140,7 @@
 <script>
 const $=s=>document.querySelector(s);
 const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3200)};
-const api=(p,o={})=>fetch(p,{headers:{'Content-Type':'application/json'},...o,body:o.body?JSON.stringify(o.body):undefined}).then(r=>r.json());
+const api=(p,o={})=>fetch(p,{headers:{'Content-Type':'application/json'},credentials:'same-origin',...o,body:o.body?JSON.stringify(o.body):undefined}).then(async r=>{const d=await r.json().catch(()=>({}));if((r.status===401||r.status===402)&&(d.login||d.subscribe))location.href=d.login||d.subscribe;return d});
 const fmtB=n=>{n=Number(n||0);const u=['B','KB','MB','GB','TB'];let i=0;while(n>=1024&&i<4){n/=1024;i++}return n.toFixed(i?1:0)+' '+u[i]};
 const fmtN=n=>Number(n||0).toLocaleString();
 const fmtD=s=>s?new Date(s).toLocaleString():'—';
@@ -221,7 +220,7 @@ function renderTable(){
   for(const l of shown){
     seen.add(l.location_id);
     const j=l.last_job,s=statusOf(l);
-    const html=`<td><span class="name">${esc(l.name||'(unnamed)')}</span><span class="id">${l.location_id} · ${l.has_pit?'PIT':'agency'}</span></td>
+    const html=`<td><span class="name">${esc(l.name||'(unnamed)')}</span><span class="id">${l.location_id}</span></td>
       <td><span class="pill ${s}">${s==='parked'?'quota wait':s}</span></td>
       <td class="dim" title="${j?fmtD(j.finished_at||j.created_at):''}">${s==='running'?progCell(l):s==='parked'?`<div class="pcell"><span class="pt">daily API quota reached</span><span class="ps">resumes ${fmtD(j.not_before)}</span></div>`:j?`${ago(j.finished_at||j.created_at)} <span style="opacity:.6">#${j.id}${j.trigger==='scheduled'?' auto':j.since?' sync':''}</span>`:'—'}</td>
       <td class="r">${fmtN(l.contacts)}</td>
@@ -260,7 +259,7 @@ function renderDrawer(){
   const s=statusOf(l),j=l.last_job,running=j&&['running','queued'].includes(j.status)&&s!=='parked';
   const html=`<button class="close" id="closeDrawer" title="close">✕</button>
     <h2>${esc(l.name||'(unnamed)')}</h2>
-    <div class="dim" style="font-size:11px;cursor:pointer" title="click to copy" data-copy="${l.location_id}">${l.location_id} · ${l.has_pit?'private token':'agency app'}</div>
+    <div class="dim" style="font-size:11px;cursor:pointer" title="click to copy" data-copy="${l.location_id}">${l.location_id} · credentials via hub</div>
     <div class="stats"><span>contacts<b>${fmtN(l.contacts)}</b></span><span>files<b>${fmtN(l.files_done)}</b></span><span>size<b>${fmtB(l.bytes)}</b></span>${Number(l.files_failed)?`<span class="f">failed<b class="f">${fmtN(l.files_failed)}</b></span>`:''}</div>
     ${l.inactive?`<div class="sec" style="border-color:var(--red)"><span class="gl f">Inactive in GHL</span><div class="dim" style="font-size:12px">GHL refuses to issue tokens for this sub-account (paused or deactivated), so it can't be read. It has been excluded from the monthly backup. Reactivate it in GHL and click Run export to bring it back, or delete it from the vault below.</div></div>`:''}
     <div class="sec"><span class="gl">Last run</span>
@@ -304,7 +303,7 @@ async function renderPushes(loc,fresh){
       <div class="hint" style="margin:0 0 10px">Copies contacts and their documents into the target through the API — matched by contact, not by folder name. The source stays untouched. Re-pushing updates instead of duplicating.</div>
       <div id="pushForm" class="pushform">
         <label class="field">Target sub-account<select id="pushTarget"><option value="">— choose —</option>${targets.map(t=>`<option value="${t.location_id}">${esc(t.name||t.location_id)}</option>`).join('')}</select></label>
-        <label class="field">What to push<select id="pushScope"><optgroup label="Test first"><option value="test:25">Test · first 25 contacts</option><option value="test:250" selected>Test · first 250 contacts</option><option value="test:1000">Test · first 1,000 contacts</option></optgroup><optgroup label="Everything"><option value="all">Whole location · ${fmtN(me?.contacts)} contacts</option></optgroup>${pkgs.filter(p=>p.status==='done').length?`<optgroup label="Rep packages">${pkgs.filter(p=>p.status==='done').map(p=>`<option value="${p.id}">Package #${p.id} · ${fmtN(p.contact_count)} contacts</option>`).join('')}</optgroup>`:''}</select></label>
+        <label class="field">What to push<select id="pushScope"><option value="all">Whole location · ${fmtN(me?.contacts)} contacts</option>${pkgs.filter(p=>p.status==='done').map(p=>`<option value="${p.id}">Package #${p.id} · ${fmtN(p.contact_count)} contacts</option>`).join('')}</select></label>
         <label class="field">Tag added to pushed contacts<input id="pushTag" value="vault-push:${slug(me?.name||loc)}"></label>
         <div class="checks" style="width:100%"><label><input type="checkbox" id="pushDocs" checked> Documents</label><label><input type="checkbox" id="pushCustom" checked> Custom field values</label><label><input type="checkbox" id="pushOpps"> Opportunities (pipelines matched by name)</label></div>
         <div class="gb" style="width:100%"><button class="btn" id="pushPreview">Preview</button><button class="btn primary" id="pushStart" disabled>Start push</button><span id="pushMsg" class="dim" style="font-size:12px;align-self:center"></span></div>
@@ -314,21 +313,19 @@ async function renderPushes(loc,fresh){
   }
   const list=await api(`/api/pushes?locationId=${loc}`);const el=$('#pushList');if(!el||state.sel!==loc)return;
   const next=list.map(p=>{const pr=p.progress||{};const st=p.status==='queued'&&p.not_before&&new Date(p.not_before)>Date.now()?'parked':p.status;
-    return `<div class="pkgrow"><span class="pill ${st}">${st==='parked'?'quota wait':st}</span><b>#${p.id}</b><span>${esc(p.source_location_id===loc?'→ '+(p.target_name||p.target_location_id):'← from '+(p.source_name||p.source_location_id))}${p.package_id?` · pkg #${p.package_id}`:p.options?.limit?` · test ${fmtN(p.options.limit)}`:' · whole location'}</span>
+    return `<div class="pkgrow"><span class="pill ${st}">${st==='parked'?'quota wait':st}</span><b>#${p.id}</b><span>${esc(p.source_location_id===loc?'→ '+(p.target_name||p.target_location_id):'← from '+(p.source_name||p.source_location_id))}${p.package_id?` · pkg #${p.package_id}`:''}</span>
       <span>${fmtN(pr.contactsDone)}/${fmtN(pr.total)} contacts · ${fmtN(pr.filesDone)} files${pr.filesFailed?` · <span class="f">${fmtN(pr.filesFailed)} failed</span>`:''}${pr.oppsDone?` · ${fmtN(pr.oppsDone)} opps`:''}${pr.note&&st!=='done'?` · ${esc(pr.note)}`:''}${p.error?` · <span class="f">${esc(p.error)}</span>`:''}</span>
       ${['queued','running'].includes(p.status)&&st!=='parked'?`<button class="btn sm" data-pushcancel="${p.id}">Stop</button>`:''}${['cancelled','failed'].includes(p.status)||st==='parked'?`<button class="btn sm" data-pushresume="${p.id}">${st==='parked'?'Try now':'Resume'}</button>`:''}${p.status!=='running'?`<button class="btn sm red" data-pushdel="${p.id}">remove</button>`:''}
       ${pr.errors?.length?`<details style="width:100%"><summary class="dim" style="font-size:11px;cursor:pointer">${pr.errors.length} issue(s)</summary><pre>${esc(pr.errors.slice(0,50).join('\n'))}</pre></details>`:''}</div>`}).join('');
   if(el.innerHTML!==next)el.innerHTML=next;
 }
-function pushBody(){const scope=$('#pushScope').value;return{targetLocationId:$('#pushTarget').value,...(scope==='all'?{sourceLocationId:state.sel}:scope.startsWith('test:')?{sourceLocationId:state.sel,limit:Number(scope.slice(5))}:{packageId:Number(scope)}),tag:$('#pushTag').value.trim()||null,include:{documents:$('#pushDocs').checked,customFields:$('#pushCustom').checked,opportunities:$('#pushOpps').checked}}}
+function pushBody(){const scope=$('#pushScope').value;return{targetLocationId:$('#pushTarget').value,...(scope==='all'?{sourceLocationId:state.sel}:{packageId:Number(scope)}),tag:$('#pushTag').value.trim()||null,include:{documents:$('#pushDocs').checked,customFields:$('#pushCustom').checked,opportunities:$('#pushOpps').checked}}}
 document.addEventListener('click',async e=>{
   const pp=e.target.closest('button[data-pushpkg]');if(pp){const sc=$('#pushScope');if(sc){sc.value=pp.dataset.pushpkg;$('#pushTarget').focus();$('#pushsec').scrollIntoView({behavior:'smooth'})}return}
   if(e.target.id==='pushPreview'){const b=pushBody();if(!b.targetLocationId)return toast('Choose a target sub-account');$('#pushMsg').textContent='checking target fields…';
     const r=await api('/api/pushes/preview',{method:'POST',body:b});if(r.error){$('#pushMsg').textContent='';return toast(r.error)}
-    $('#pushMsg').textContent='';
-    const p=r.perms||{};const blocked=!!(p.missing&&p.missing.length);$('#pushStart').disabled=blocked;
-    const permHtml=p.error?`<div class="hint f">Could not get a token for the target: ${esc(p.error)}</div>`:p.has===null?`<div class="hint">Target uses a Private Integration token — make sure it has write access to contacts, custom fields and forms.</div>`:blocked?`<div class="hint f" style="margin-top:8px"><b>Target token is missing write scopes:</b> ${p.missing.map(esc).join(', ')}.<br>Add them under the marketplace app's Scopes, save, then click <b>Reconnect agency app</b> at the top and approve the new permissions. If they're still missing after that, uninstall and reinstall the app on the agency so sub-accounts pick up the new scopes.</div>`:`<div class="hint g" style="margin-top:8px">Target token has write access ✓</div>`;
-    $('#pushPrev').innerHTML=permHtml+`<div class="stats" style="margin-top:4px"><span>contacts<b>${fmtN(r.contacts)}</b></span><span>documents<b>${fmtN(r.files)}</b></span><span>size<b>${fmtB(r.bytes)}</b></span>${b.include.opportunities?`<span>opportunities<b>${fmtN(r.opportunities)}</b></span>`:''}</div>
+    $('#pushMsg').textContent='';$('#pushStart').disabled=false;
+    $('#pushPrev').innerHTML=`<div class="stats" style="margin-top:4px"><span>contacts<b>${fmtN(r.contacts)}</b></span><span>documents<b>${fmtN(r.files)}</b></span><span>size<b>${fmtB(r.bytes)}</b></span>${b.include.opportunities?`<span>opportunities<b>${fmtN(r.opportunities)}</b></span>`:''}</div>
       <div class="hint" style="margin:4px 0 6px">≈ ${fmtN(r.contacts*2+r.files)} API calls on the target (200k/day cap → ${Math.max(1,Math.ceil((r.contacts*2+r.files)/200000))} day${(r.contacts*2+r.files)>200000?'s':''}).</div>
       <div class="kv" style="font-size:12px">${r.fields.map(f=>`<span>${esc(f.name)} <span class="id">${f.kind}</span></span><span class="${/created/.test(f.target)?'acc':/skipped/.test(f.target)?'f':'dim'}">${esc(f.target)}</span>`).join('')||'<span class="dim">no custom fields involved</span>'}</div>`;return}
   if(e.target.id==='pushStart'){const b=pushBody();if(!b.targetLocationId)return toast('Choose a target sub-account');const tn=$('#pushTarget').selectedOptions[0].textContent;
@@ -377,8 +374,8 @@ document.addEventListener('click',async e=>{
   if(b.dataset.resume){await api(`/api/jobs/${b.dataset.resume}/resume`,{method:'POST'});toast('Resumed');load()}
   if(b.dataset.retry){await api(`/api/jobs/${b.dataset.retry}/retry-failed`,{method:'POST'});toast('Retry queued');load()}
 });
-$('#addLoc').onclick=async()=>{const r=await api('/api/locations',{method:'POST',body:{locationId:$('#locId').value.trim(),name:$('#locName').value.trim(),pitToken:$('#locPit').value.trim()}});
-  toast(r.error||r.warning||`Saved ${r.name||''}`);$('#locId').value=$('#locName').value=$('#locPit').value='';load()};
+$('#addLoc').onclick=async()=>{if(!$('#locId').value)return toast('Pick a sub-account');const r=await api('/api/locations',{method:'POST',body:{locationId:$('#locId').value}});
+  toast(r.error||r.warning||`Added ${r.name||''}`);$('#locId').value='';load();loadBackup()};
 
 // ---------- agency panel ----------
 document.querySelectorAll('[data-toggle]').forEach(b=>b.onclick=()=>{const id=b.dataset.toggle;const open=$('#'+id).hidden;document.querySelectorAll('[data-toggle]').forEach(x=>{const p=$('#'+x.dataset.toggle);p.hidden=!(x===b&&open);x.classList.toggle('open',x===b&&open)})});
@@ -387,19 +384,20 @@ async function loadBackup(){
   if($('#schedPanel').hidden){$('#bkEnabled').checked=!!s.enabled;$('#bkDay').value=s.day;$('#bkHour').value=s.hour;$('#bkMode').value=s.mode;$('#bkImport').checked=!!s.importFirst}
   $('#bkTz').textContent=b.tz;
   const box=$('#bkSrcs');if(!box.querySelector('label'))b.sources.forEach(x=>{const l=document.createElement('label');l.innerHTML=`<input type=checkbox value="${x}" ${s.sources.includes(x)?'checked':''}> ${x}`;box.appendChild(l)});
-  $('#bkConnect').style.display=b.oauthReady?'':'none';$('#bkConnect').textContent=b.oauthConnected?'Reconnect agency app':'Connect agency app';
-  const cred=b.oauthConnected?`Agency app connected · <span class="id">${b.companyId||'?'}</span>`:b.oauthReady?'<span class="f">app configured but not installed yet — click Connect agency app and approve it for your AGENCY</span>':b.credential?`<span class="f">${b.credential}</span>`:`<span class="f">no agency credential — create a private marketplace app, set GHL_CLIENT_ID + GHL_CLIENT_SECRET, redirect URL <code>${b.redirectUri}</code></span>`;
+  $('#bkConnect').href=(b.hubUrl||window.HUB_URL||'')+'/app#connect';
+  const notIn=b.connected.filter(c=>!c.inVault);const sel=$('#locId');const cur=sel.value;
+  sel.innerHTML='<option value="">— connected sub-accounts not yet in the vault —</option>'+notIn.map(c=>`<option value="${c.locationId}">${esc(c.label||c.locationId)}</option>`).join('');if(notIn.some(c=>c.locationId===cur))sel.value=cur;
+  const cred=b.connected.length?`<b>${b.connected.length}</b> sub-accounts connected on the hub${notIn.length?` · <span class="acc">${notIn.length} not in the vault yet</span>`:''}`:'<span class="f">no sub-accounts connected on the hub yet — click Connect sub-accounts</span>';
   const sched=s.enabled?`Monthly, day ${s.day} at ${String(s.hour).padStart(2,'0')}:00 ${b.tz} · ${s.mode}`:'<span class="f">Schedule off</span>';
   const dot='<span class="dot"></span>';
   $('#bkStatus').innerHTML=[`<span><b>${b.counts.enabled}</b> of ${b.counts.total} sub-accounts enabled</span>`,`<span><b>${b.counts.backed_up}</b> backed up</span>`,b.counts.in_progress?`<span><b>${b.counts.in_progress}</b> running</span>`:'',`<span>${sched}</span>`,`<span>${cred}</span>`].filter(Boolean).join(dot);
   $('#pagesub').textContent=`${b.counts.total} sub-accounts`;
-  const l=s.last;$('#bkLast').textContent=l?`Last run ${new Date(l.at).toLocaleString()} (${l.trigger}, ${l.mode}): ${l.queued} queued, ${l.skipped} busy${l.imported?.total!=null?`, ${l.imported.imported} new sub-accounts imported`:''}${l.imported?.error?' · import failed: '+l.imported.error:''}`:'No backup run yet.';
+  const l=s.last;$('#bkLast').textContent=l?`Last run ${new Date(l.at).toLocaleString()} (${l.trigger}, ${l.mode}): ${l.queued} queued, ${l.skipped} busy${l.imported?.total!=null?`, ${l.imported.imported} new sub-accounts imported`:''}${l.imported?.elsewhere?` · ${l.imported.elsewhere} vaulted under another account`:''}${l.imported?.error?' · import failed: '+l.imported.error:''}`:'No backup run yet.';
 }
 $('#bkSave').onclick=async()=>{const r=await api('/api/backup/schedule',{method:'POST',body:{enabled:$('#bkEnabled').checked,day:Number($('#bkDay').value),hour:Number($('#bkHour').value),mode:$('#bkMode').value,importFirst:$('#bkImport').checked,sources:[...document.querySelectorAll('#bkSrcs input:checked')].map(i=>i.value)}});toast(r.error||'Schedule saved');loadBackup()};
 $('#bkNow').onclick=async()=>{if(!confirm('Queue a backup for every enabled sub-account now?'))return;const r=await api('/api/backup/run',{method:'POST',body:{}});toast(r.error||`Queued ${r.queued} sub-accounts`);loadBackup();load()};
-$('#bkTest').onclick=async()=>{toast('Testing…');const r=await api('/api/backup/test',{method:'POST',body:{}});alert(r.ok?`OK — minted a token for ${r.location} and read contacts (${r.contacts} total)${r.scopes?`\n\nToken scopes:\n${r.scopes.join('\n')}${r.writeMissing?.length?`\n\nMISSING for push: ${r.writeMissing.join(', ')}`:'\n\nWrite scopes for push: OK'}`:''}`:`FAILED\n\n${r.error}`)};
-$('#importAgency2').onclick=async()=>{const r=await api('/api/locations/import-agency',{method:'POST'});toast(r.error||`${r.total} sub-accounts (${r.imported} new)`);loadBackup();load()};
-if(new URLSearchParams(location.search).get('connected'))toast('Agency app connected');
+$('#bkTest').onclick=async()=>{toast('Testing…');const r=await api('/api/backup/test',{method:'POST',body:{}});alert(r.ok?`OK — got a token for ${r.location} and read contacts (${r.contacts} total)`:`FAILED\n\n${r.error}`)};
+$('#importAgency2').onclick=async()=>{const r=await api('/api/locations/import-agency',{method:'POST'});toast(r.error||`${r.total} sub-accounts (${r.imported} new${r.elsewhere?`, ${r.elsewhere} held by another account`:''})`);loadBackup();load()};
 loadSources();load();loadBackup();setInterval(load,8000);setInterval(loadBackup,30000);
 </script>
 </body>

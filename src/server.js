@@ -1,13 +1,14 @@
 import express from 'express';
 import { createPush, previewMapping } from './pusher.js';
-import { tokenScopes, PUSH_WRITE_SCOPES } from './ghl.js';
 import archiver from 'archiver';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrate, q } from './db.js';
 import { startWorker } from './runner.js';
 import { startScheduler, getSchedule, setSchedule, backupAll } from './scheduler.js';
-import { importAgencyLocations, agencyToken, companyId, oauthAuthorizeUrl, oauthExchange } from './ghl.js';
+import { importAgencyLocations } from './ghl.js';
+import { createRequire } from 'node:module';
+import cookieParser from 'cookie-parser';
 import { ALL_SOURCES } from './sources/index.js';
 import { getObjectStream } from './storage.js';
 import { ghl, parseFileFieldValue } from './ghl.js';
@@ -20,16 +21,11 @@ import { locationUsage, userUsage, dailySeries, agencyOverview } from './usage.j
 import crypto from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
+// Login, billing and GHL credentials come from the RGS Tools Hub.
+const hub = require('./hub-client.cjs')({ toolSlug: 'data-vault' });
 const app = express();
-const redirectUri = req => `${req.get('x-forwarded-proto') || req.protocol}://${req.get('host')}/oauth/callback`;
-
-// Marketplace-app install callback (public: GHL redirects here after the agency approves the app).
-app.get('/oauth/callback', async (req, res) => {
-  if (req.query.error) return res.status(400).send(`GHL returned an error: ${req.query.error_description || req.query.error}`);
-  if (!req.query.code) return res.status(400).send('Missing code');
-  try { await oauthExchange(String(req.query.code), redirectUri(req)); res.redirect('/?connected=1'); }
-  catch (err) { res.status(400).type('html').send(`<pre style="font:14px monospace;padding:30px">Agency connect failed:\n\n${err.message}\n\n<a href="/">back</a></pre>`); }
-});
+app.set('trust proxy', 1);
 // Any async route that throws must answer 500, not take the process down (Node exits on unhandled rejections).
 for (const m of ['get', 'post', 'put', 'delete']) {
   const orig = app[m].bind(app);
@@ -39,6 +35,7 @@ for (const m of ['get', 'post', 'put', 'delete']) {
 process.on('unhandledRejection', err => console.error('unhandledRejection:', err?.stack || err));
 process.on('uncaughtException', err => console.error('uncaughtException:', err?.stack || err));
 app.use(express.json());
+app.use(cookieParser());
 
 // --- public routes (no basic auth): webhook receiver + owner report ---------------------
 // GHL marketplace-app webhooks. Point the app's webhook URL at https://<host>/webhooks/ghl?key=<WEBHOOK_KEY>.
@@ -71,7 +68,7 @@ app.get('/api/report/:token', async (req, res) => {
 });
 
 // --- share-link password helpers -------------------------------------------------------
-const SECRET = process.env.SESSION_SECRET || process.env.ADMIN_PASSWORD || 'ghl-vault';
+const SECRET = process.env.SESSION_SECRET || process.env.HUB_JWT_SECRET || 'ghl-vault';
 const hashPw = pw => { const salt = crypto.randomBytes(16).toString('hex'); return salt + ':' + crypto.scryptSync(pw, salt, 32).toString('hex'); };
 const checkPw = (pw, stored) => { if (!stored) return true; const [salt, h] = stored.split(':'); const a = Buffer.from(h, 'hex'); const b = crypto.scryptSync(pw || '', salt, 32); return a.length === b.length && crypto.timingSafeEqual(a, b); };
 const shareSig = token => crypto.createHmac('sha256', SECRET).update('share:' + token).digest('base64url');
@@ -111,92 +108,75 @@ app.get('/share/:token', async (req, res) => {
   <p><small>Download links on this page refresh each time it's opened; if one stops working, reload the page.</small></p>`);
 });
 
-// --- login: ADMIN_USER + ADMIN_PASSWORD (set in Railway) --------------------------------------
-const ADMIN_USER = process.env.ADMIN_USER || 'admin';
-const ADMIN_PW = process.env.ADMIN_PASSWORD || '';
-const SESSION_DAYS = Number(process.env.SESSION_DAYS || 7);
-const sessionToken = () => {
-  const exp = Date.now() + SESSION_DAYS * 86_400_000;
-  const sig = crypto.createHmac('sha256', SECRET + ADMIN_PW).update(`session:${exp}`).digest('base64url');
-  return `${exp}.${sig}`;
-};
-const validSession = t => {
-  if (!t) return false;
-  const [exp, sig] = t.split('.');
-  if (!exp || !sig || Number(exp) < Date.now()) return false;
-  const want = crypto.createHmac('sha256', SECRET + ADMIN_PW).update(`session:${exp}`).digest('base64url');
-  return sig.length === want.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want));
-};
-const loginPage = (err) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GHL Vault · Sign in</title>
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/vault.css"><script src="/vault.js" data-nobar></script>
-  <style>body{min-height:100vh;display:grid;place-items:center}
-  .login{width:min(380px,calc(100vw - 32px));padding:34px 32px 30px;position:relative}
-  .login:before{content:"";position:absolute;inset:0 auto auto 0;width:100%;height:3px;background:linear-gradient(90deg,var(--accent),transparent);border-radius:10px 10px 0 0}
-  h1{font-size:38px;line-height:1}h1 small{display:block;font:600 10.5px/1 "Schibsted Grotesk",sans-serif;font-style:normal;color:var(--accent);letter-spacing:.2em;text-transform:uppercase;margin-top:10px}
-  label{display:block;margin-top:16px;font:600 11px/1 "Schibsted Grotesk",sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
-  input{width:100%;margin-top:6px;padding:10px 12px}
-  button{width:100%;margin-top:20px;padding:11px}
-  .err{color:var(--red);font-size:13px;margin:14px 0 0;padding:9px 12px;background:var(--red-soft);border-radius:7px}
-  .foot{display:flex;justify-content:space-between;align-items:center;margin-top:18px;font-size:12px;color:var(--dim)}
-  .foot a{color:var(--dim);cursor:pointer}.foot a:hover{color:var(--ink)}</style></head>
-  <body><form class="card login" method="post" action="/login"><h1>GHL Vault<small>Sign in</small></h1>${err ? `<p class="err">${err}</p>` : ''}
-  <label>Username<input name="user" autocomplete="username" autofocus required></label><label>Password<input name="password" type="password" autocomplete="current-password" required></label>
-  <button class="primary">Sign in</button><div class="foot"><span>Agency file vault</span><a onclick="vaultTheme.toggle()">Light / dark</a></div></form></body></html>`;
+// --- auth: hub session for pages and API; design assets + public pages stay open ----------
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'landing.html')));
+app.get('/config.js', (req, res) => res.type('application/javascript').send(`window.HUB_URL=${JSON.stringify(hub.HUB_URL)};window.TOOL_SLUG="data-vault";`));
+app.get('/app', hub.requireToolPage, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+for (const page of ['search.html', 'usage.html', 'analytics.html']) app.get('/' + page, hub.requireToolPage, (req, res) => res.sendFile(path.join(__dirname, 'public', page)));
+app.use(express.static(path.join(__dirname, 'public'), { index: false, extensions: [] }));   // css, js, fonts; html pages are routed above
+app.use('/api', hub.requireTool);
+app.get('/api/me', hub.me);
 
-app.get('/login', (req, res) => { if (!ADMIN_PW || validSession(cookies(req).vault_session)) return res.redirect('/'); res.type('html').send(loginPage()); });
-app.post('/login', express.urlencoded({ extended: false }), (req, res) => {
-  const ok = ADMIN_PW && req.body?.user === ADMIN_USER && req.body?.password === ADMIN_PW;
-  if (!ok) return res.status(401).type('html').send(loginPage('Incorrect username or password.'));
-  res.set('Set-Cookie', `vault_session=${sessionToken()}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${req.get('x-forwarded-proto') === 'https' ? '; Secure' : ''}`);
-  res.redirect('/');
-});
-app.get('/logout', (req, res) => { res.set('Set-Cookie', 'vault_session=; Path=/; Max-Age=0'); res.redirect('/login'); });
-
-app.use((req, res, next) => {
-  if (req.path === '/vault.css' || req.path === '/vault.js') return next();   // design system is needed by the login + owner report pages
-  if (!ADMIN_PW) { if (!global._warnedNoPw) { global._warnedNoPw = true; console.warn('WARN: ADMIN_PASSWORD not set — dashboard is open to anyone with the URL'); } return next(); }
-  if (validSession(cookies(req).vault_session)) return next();
-  // Basic auth still accepted for scripts / curl
-  const [scheme, b64] = (req.headers.authorization || '').split(' ');
-  if (scheme === 'Basic' && b64) { const [u, ...p] = Buffer.from(b64, 'base64').toString().split(':'); if (u === ADMIN_USER && p.join(':') === ADMIN_PW) return next(); }
-  if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'login required' });
-  res.redirect('/login');
-});
-app.use(express.static(path.join(__dirname, 'public')));
+// Ownership: every location belongs to one hub account. Everything below goes through these.
+const me = req => req.hubUser.id;
+async function own(req, res, locationId) {
+  const { rows: [l] } = await q('SELECT owner_id FROM locations WHERE location_id=$1', [locationId]);
+  if (!l || l.owner_id !== me(req)) { res.status(404).json({ error: 'No such location in your vault' }); return false; }
+  return true;
+}
+const ownLoc = async (req, res, next) => { if (await own(req, res, req.params.id)) next(); };
+async function ownJob(req, res, next) {
+  const { rows: [j] } = await q('SELECT j.location_id, l.owner_id FROM jobs j JOIN locations l ON l.location_id=j.location_id WHERE j.id=$1', [req.params.id]);
+  if (!j || j.owner_id !== me(req)) return res.status(404).json({ error: 'No such job' });
+  next();
+}
+async function ownPkg(req, res, next) {
+  const { rows: [p] } = await q('SELECT p.*, l.owner_id FROM packages p JOIN locations l ON l.location_id=p.location_id WHERE p.id=$1', [req.params.id]);
+  if (!p || p.owner_id !== me(req)) return res.status(404).json({ error: 'No such package' });
+  req.pkg = p; next();
+}
+async function ownPush(req, res, next) {
+  const { rows: [p] } = await q('SELECT p.id FROM pushes p JOIN locations l ON l.location_id=p.source_location_id WHERE p.id=$1 AND l.owner_id=$2', [req.params.id, me(req)]);
+  if (!p) return res.status(404).json({ error: 'No such push' });
+  next();
+}
 
 const csvCell = v => v == null ? '' : `"${String(v).replace(/"/g, '""')}"`;
 
 // --- locations ----------------------------------------------------------------------
-app.get('/api/locations', async (_req, res) => {
+app.get('/api/locations', async (req, res) => {
   try {
     const { rows } = await q(`
       WITH f AS (SELECT location_id, count(*) FILTER (WHERE status='done') AS files_done, count(*) FILTER (WHERE status='failed') AS files_failed,
                         coalesce(sum(size_bytes) FILTER (WHERE status='done'),0) AS bytes FROM files GROUP BY location_id),
            j AS (SELECT DISTINCT ON (location_id) location_id, id, status, sources, progress, since, trigger, created_at, finished_at, not_before FROM jobs ORDER BY location_id, id DESC),
            c AS (SELECT location_id, count(*) AS contacts FROM contacts GROUP BY location_id)
-      SELECT l.location_id, l.name, (l.pit_token IS NOT NULL) AS has_pit, l.backup_enabled, l.inactive, l.created_at,
+      SELECT l.location_id, l.name, false AS has_pit, l.backup_enabled, l.inactive, l.created_at,
              coalesce(c.contacts,0) AS contacts,
              coalesce(f.files_done,0) AS files_done, coalesce(f.files_failed,0) AS files_failed, coalesce(f.bytes,0) AS bytes,
              CASE WHEN j.id IS NULL THEN NULL ELSE json_build_object('id',j.id,'status',j.status,'sources',j.sources,'progress',j.progress,'since',j.since,'trigger',j.trigger,'created_at',j.created_at,'finished_at',j.finished_at,'not_before',j.not_before) END AS last_job
       FROM locations l LEFT JOIN f ON f.location_id=l.location_id LEFT JOIN j ON j.location_id=l.location_id LEFT JOIN c ON c.location_id=l.location_id
-      ORDER BY l.name NULLS LAST, l.location_id`);
+      WHERE l.owner_id=$1
+      ORDER BY l.name NULLS LAST, l.location_id`, [me(req)]);
     res.json(rows);
   } catch (err) { console.error('locations', err); res.status(500).json({ error: err.message }); }
 });
 
+// Add one of the account's connected sub-accounts to the vault. The credential lives on the hub.
 app.post('/api/locations', async (req, res) => {
-  const { locationId, name, pitToken } = req.body || {};
+  const { locationId } = req.body || {};
   if (!locationId) return res.status(400).json({ error: 'locationId required' });
-  await q(`INSERT INTO locations (location_id, name, pit_token) VALUES ($1,$2,$3)
-           ON CONFLICT (location_id) DO UPDATE SET name=COALESCE(EXCLUDED.name, locations.name),
-           pit_token=COALESCE(EXCLUDED.pit_token, locations.pit_token)`, [locationId, name || null, pitToken || null]);
-  // best-effort name lookup + token check
+  const conn = (req.hubUser.connections || []).find(c => c.location_id === locationId);
+  if (!conn) return res.status(400).json({ error: 'That sub-account is not connected to your account on the hub. Connect it there first.' });
+  const { rows: [cur] } = await q('SELECT owner_id FROM locations WHERE location_id=$1', [locationId]);
+  if (cur && cur.owner_id && cur.owner_id !== me(req)) return res.status(409).json({ error: 'This sub-account is already vaulted under another account.' });
+  await q(`INSERT INTO locations (location_id, name, owner_id) VALUES ($1,$2,$3)
+           ON CONFLICT (location_id) DO UPDATE SET name=COALESCE(locations.name, EXCLUDED.name), owner_id=$3`, [locationId, conn.label || null, me(req)]);
   try {
     const d = await ghl(locationId, 'GET', `/locations/${locationId}`);
     if (d.location?.name) await q('UPDATE locations SET name=$2 WHERE location_id=$1', [locationId, d.location.name]);
     res.json({ ok: true, name: d.location?.name });
-  } catch (err) { res.json({ ok: true, warning: `saved, but token check failed: ${err.message}` }); }
+  } catch (err) { res.json({ ok: true, warning: `saved, but the token check failed: ${err.message}` }); }
 });
 
 async function resetLocation(locationId, { purgeR2 = false, dropLocation = false } = {}) {
@@ -212,57 +192,50 @@ async function resetLocation(locationId, { purgeR2 = false, dropLocation = false
   if (dropLocation) await q('DELETE FROM locations WHERE location_id=$1', [locationId]);
   return deleted;
 }
-app.post('/api/locations/:id/reset', async (req, res) => {
+app.post('/api/locations/:id/reset', ownLoc, async (req, res) => {
   try { res.json({ ok: true, r2Deleted: await resetLocation(req.params.id, { purgeR2: !!req.body?.purgeR2 }) }); }
   catch (err) { res.status(409).json({ error: err.message }); }
 });
-app.delete('/api/locations/:id', async (req, res) => {
+app.delete('/api/locations/:id', ownLoc, async (req, res) => {
   try { res.json({ ok: true, r2Deleted: await resetLocation(req.params.id, { purgeR2: !!req.body?.purgeR2, dropLocation: true }) }); }
   catch (err) { res.status(409).json({ error: err.message }); }
 });
 
 // Bulk-import every sub-account under the agency.
-app.post('/api/locations/import-agency', async (_req, res) => {
-  try { res.json(await importAgencyLocations()); } catch (err) { res.status(400).json({ error: err.message }); }
+app.post('/api/locations/import-agency', async (req, res) => {
+  try { res.json(await importAgencyLocations(me(req))); } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
 // --- agency backup schedule ------------------------------------------------------------
-app.get('/api/backup', async (_req, res) => {
-  const sch = await getSchedule();
+app.get('/api/backup', async (req, res) => {
+  const sch = await getSchedule(me(req));
   const { rows: [c] } = await q(`SELECT count(*) AS total, count(*) FILTER (WHERE backup_enabled) AS enabled,
     count(*) FILTER (WHERE EXISTS (SELECT 1 FROM jobs j WHERE j.location_id=l.location_id AND j.status='done')) AS backed_up,
-    count(*) FILTER (WHERE EXISTS (SELECT 1 FROM jobs j WHERE j.location_id=l.location_id AND j.status IN ('queued','running'))) AS in_progress FROM locations l`);
-  let credential = null;
-  if (process.env.GHL_CLIENT_ID) { try { credential = (await agencyToken()) ? 'agency app (OAuth)' : null; } catch { credential = null; } }
-  else if (process.env.GHL_AGENCY_PIT) credential = 'agency PIT (cannot read sub-accounts — connect the agency app)';
-  const oauthReady = !!(process.env.GHL_CLIENT_ID && process.env.GHL_CLIENT_SECRET);
-  let cid = null, cidError = null; try { cid = credential ? await companyId() : null; } catch (err) { cidError = err.message; }
-  res.json({ schedule: sch, counts: Object.fromEntries(Object.entries(c).map(([k, v]) => [k, Number(v)])), credential, oauthReady, oauthConnected: !!(process.env.GHL_CLIENT_ID && credential), redirectUri: redirectUri(_req), companyId: cid, companyIdError: cidError, tz: process.env.TZ || 'UTC', sources: ALL_SOURCES });
-});
-app.get('/oauth/start', (req, res) => {
-  if (!process.env.GHL_CLIENT_ID || !process.env.GHL_CLIENT_SECRET) return res.status(400).send('Set GHL_CLIENT_ID and GHL_CLIENT_SECRET in Railway first');
-  res.redirect(oauthAuthorizeUrl(redirectUri(req)));
+    count(*) FILTER (WHERE EXISTS (SELECT 1 FROM jobs j WHERE j.location_id=l.location_id AND j.status IN ('queued','running'))) AS in_progress FROM locations l WHERE l.owner_id=$1`, [me(req)]);
+  const { rows: mine } = await q('SELECT location_id FROM locations WHERE owner_id=$1', [me(req)]);
+  const inVault = new Set(mine.map(r => r.location_id));
+  const connected = (req.hubUser.connections || []).map(x => ({ locationId: x.location_id, label: x.label, inVault: inVault.has(x.location_id) }));
+  res.json({ schedule: sch, counts: Object.fromEntries(Object.entries(c).map(([k, v]) => [k, Number(v)])), connected, hubUrl: hub.HUB_URL, tz: process.env.TZ || 'UTC', sources: ALL_SOURCES });
 });
 app.post('/api/backup/test', async (req, res) => {
-  // End-to-end check: can we mint a location token and read one contact page with it?
+  // End-to-end check: can we get a token for one of this account's locations and read one contact page with it?
   try {
-    const { rows: [loc] } = await q(`SELECT location_id, name FROM locations WHERE pit_token IS NULL ORDER BY name LIMIT 1`);
-    if (!loc) return res.json({ ok: true, note: 'every location has its own PIT; agency token not needed' });
-    await q('UPDATE locations SET oauth_expires=NULL WHERE location_id=$1', [loc.location_id]);   // force a fresh mint
+    const { rows: [loc] } = await q(`SELECT location_id, name FROM locations WHERE owner_id=$1 AND NOT inactive ORDER BY name LIMIT 1`, [me(req)]);
+    if (!loc) return res.json({ ok: false, error: 'Add a sub-account to the vault first' });
     const d = await ghl(loc.location_id, 'POST', '/contacts/search', { body: { locationId: loc.location_id, pageLimit: 1 } });
-    const t = await tokenScopes(loc.location_id, { fresh: false }).catch(() => null);
-    res.json({ ok: true, location: loc.name || loc.location_id, contacts: d.total ?? (d.contacts || []).length, scopes: t?.scopes || null, writeMissing: t?.scopes ? PUSH_WRITE_SCOPES.filter(s => !t.scopes.includes(s)) : null });
+    res.json({ ok: true, location: loc.name || loc.location_id, contacts: d.total ?? (d.contacts || []).length });
   } catch (err) { res.status(400).json({ ok: false, error: err.message }); }
 });
-app.post('/api/backup/schedule', async (req, res) => res.json(await setSchedule(req.body || {})));
+app.post('/api/backup/schedule', async (req, res) => res.json(await setSchedule(me(req), req.body || {})));
 app.post('/api/backup/run', async (req, res) => {
-  try { res.json(await backupAll({ mode: req.body?.mode, trigger: 'manual' })); } catch (err) { res.status(400).json({ error: err.message }); }
+  try { res.json(await backupAll(me(req), { mode: req.body?.mode, trigger: 'manual' })); } catch (err) { res.status(400).json({ error: err.message }); }
 });
-app.post('/api/locations/:id/backup-enabled', async (req, res) => { await q('UPDATE locations SET backup_enabled=$2 WHERE location_id=$1', [req.params.id, !!req.body?.enabled]); res.json({ ok: true }); });
+app.post('/api/locations/:id/backup-enabled', ownLoc, async (req, res) => { await q('UPDATE locations SET backup_enabled=$2 WHERE location_id=$1', [req.params.id, !!req.body?.enabled]); res.json({ ok: true }); });
 
 // --- jobs -----------------------------------------------------------------------------
 app.post('/api/jobs', async (req, res) => {
   const { locationId, sources, incremental } = req.body || {};
+  if (!(await own(req, res, String(locationId || '')))) return;
   const chosen = (sources?.length ? sources : ALL_SOURCES).filter(s => ALL_SOURCES.includes(s));
   let since = null;
   if (incremental) {
@@ -274,18 +247,18 @@ app.post('/api/jobs', async (req, res) => {
   res.json(job);
 });
 app.get('/api/jobs', async (req, res) => {
-  const { rows } = await q(`SELECT * FROM jobs WHERE ($1::text IS NULL OR location_id=$1) ORDER BY id DESC LIMIT 50`, [req.query.locationId || null]);
+  const { rows } = await q(`SELECT j.* FROM jobs j JOIN locations l ON l.location_id=j.location_id WHERE l.owner_id=$2 AND ($1::text IS NULL OR j.location_id=$1) ORDER BY j.id DESC LIMIT 50`, [req.query.locationId || null, me(req)]);
   res.json(rows);
 });
-app.post('/api/jobs/:id/cancel', async (req, res) => {
+app.post('/api/jobs/:id/cancel', ownJob, async (req, res) => {
   await q(`UPDATE jobs SET status='cancelled' WHERE id=$1 AND status IN ('queued','running')`, [req.params.id]); res.json({ ok: true });
 });
-app.post('/api/jobs/:id/resume', async (req, res) => {
+app.post('/api/jobs/:id/resume', ownJob, async (req, res) => {
   // keeps saved cursors; paused sources restart from where they stopped
   // also lets a quota-parked job be forced to try again now
   await q(`UPDATE jobs SET status='queued', finished_at=NULL, not_before=NULL WHERE id=$1 AND (status IN ('cancelled','failed') OR not_before IS NOT NULL)`, [req.params.id]); res.json({ ok: true });
 });
-app.post('/api/jobs/:id/retry-failed', async (req, res) => {
+app.post('/api/jobs/:id/retry-failed', ownJob, async (req, res) => {
   // Re-queue failed downloads: flip them back to pending so the next run re-ingests them.
   const { rows: [job] } = await q('SELECT * FROM jobs WHERE id=$1', [req.params.id]);
   if (!job) return res.status(404).end();
@@ -295,7 +268,7 @@ app.post('/api/jobs/:id/retry-failed', async (req, res) => {
 });
 
 // --- manifest + zip --------------------------------------------------------------------
-app.get('/api/locations/:id/manifest.csv', async (req, res) => {
+app.get('/api/locations/:id/manifest.csv', ownLoc, async (req, res) => {
   const cols = ['id','source','status','contact_id','opportunity_id','conversation_id','message_id','submission_id','document_id',
                 'field_id','field_name','original_filename','mime_type','size_bytes','r2_key','source_url','downloaded_at','error'];
   res.set('Content-Type', 'text/csv').set('Content-Disposition', `attachment; filename="${req.params.id}-manifest.csv"`);
@@ -344,7 +317,7 @@ async function bundleStatus(locationId, scope) {
   const { rows } = await q(`SELECT * FROM bundles WHERE location_id=$1 AND scope=$2 ORDER BY part`, [locationId, scope]);
   return Promise.all(rows.map(async b => ({ ...b, url: b.status === 'done' ? await presign(b.r2_key, b.r2_key.split('/').pop()) : null })));
 }
-app.post('/api/locations/:id/shares', async (req, res) => {
+app.post('/api/locations/:id/shares', ownLoc, async (req, res) => {
   const days = Math.min(90, Math.max(1, Number(req.body?.days) || 7));
   const token = crypto.randomBytes(15).toString('base64url');
   const pw = (req.body?.password || '').trim();
@@ -352,20 +325,20 @@ app.post('/api/locations/:id/shares', async (req, res) => {
     [token, req.params.id, req.body?.scope || 'location', req.body?.label || null, String(days), pw ? hashPw(pw) : null]);
   res.json({ token, url: `${req.protocol}://${req.get('host')}/share/${token}`, days, protected: !!pw });
 });
-app.get('/api/locations/:id/shares', async (req, res) => {
+app.get('/api/locations/:id/shares', ownLoc, async (req, res) => {
   const { rows } = await q(`SELECT token, scope, label, expires_at, created_at, (password_hash IS NOT NULL) AS protected FROM shares WHERE location_id=$1 AND ($2::text IS NULL OR scope=$2) AND expires_at > now() ORDER BY created_at DESC`, [req.params.id, req.query.scope || null]);
   res.json(rows.map(r => ({ ...r, url: `${req.protocol}://${req.get('host')}/share/${r.token}` })));
 });
-app.delete('/api/shares/:token', async (req, res) => { await q('DELETE FROM shares WHERE token=$1', [req.params.token]); res.json({ ok: true }); });
+app.delete('/api/shares/:token', async (req, res) => { await q('DELETE FROM shares s USING locations l WHERE s.token=$1 AND l.location_id=s.location_id AND l.owner_id=$2', [req.params.token, me(req)]); res.json({ ok: true }); });
 
-app.get('/api/locations/:id/bundles', async (req, res) => res.json(await bundleStatus(req.params.id, req.query.scope || 'location')));
-app.post('/api/locations/:id/bundles', async (req, res) => {
+app.get('/api/locations/:id/bundles', ownLoc, async (req, res) => res.json(await bundleStatus(req.params.id, req.query.scope || 'location')));
+app.post('/api/locations/:id/bundles', ownLoc, async (req, res) => {
   const scope = req.body?.scope || 'location';
   res.json({ parts: await queueBundles(req.params.id, scope) });
 });
 
 // Export page: prepare zip parts in R2, then download them directly from Cloudflare.
-app.get('/api/locations/:id/export', async (req, res) => {
+app.get('/api/locations/:id/export', ownLoc, async (req, res) => {
   const scope = req.query.scope || 'location';
   const rows = await locationZipRows(req.params.id);
   const total = rows.reduce((a, r) => a + Number(r.size_bytes || 0), 0);
@@ -387,7 +360,7 @@ app.get('/api/locations/:id/export', async (req, res) => {
   <p><small>Alternative with a terminal:</small></p>
   <pre>rclone sync r2:${process.env.R2_BUCKET}/${req.params.id} ./${req.params.id}
 # rclone config: type=s3, provider=Cloudflare, endpoint=https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com</pre>
-  <p><a href="/">← back</a></p>
+  <p><a href="/app">← back</a></p>
   <script>
   const fmtB=n=>{const u=['B','KB','MB','GB','TB'];let i=0;n=Number(n||0);while(n>=1024&&i<4){n/=1024;i++}return n.toFixed(i?1:0)+' '+u[i]};
   async function load(){const bs=await fetch('/api/locations/${req.params.id}/bundles?scope=${scope}').then(r=>r.json());
@@ -404,7 +377,7 @@ app.get('/api/locations/:id/export', async (req, res) => {
   </script>`);
 });
 
-app.get('/api/locations/:id/export.zip', async (req, res) => {
+app.get('/api/locations/:id/export.zip', ownLoc, async (req, res) => {
   const rows = await locationZipRows(req.params.id);
   const part = Number(req.query.part);
   if (part) {
@@ -417,14 +390,14 @@ app.get('/api/locations/:id/export.zip', async (req, res) => {
 });
 
 // --- packages -------------------------------------------------------------------------
-app.get('/api/locations/:id/pool', async (req, res) => {
+app.get('/api/locations/:id/pool', ownLoc, async (req, res) => {
   const { rows: [r] } = await q(`
     SELECT (SELECT count(*) FROM contacts WHERE location_id=$1) AS total,
            (SELECT count(*) FROM package_contacts WHERE location_id=$1 AND locked) AS assigned`, [req.params.id]);
   res.json({ total: Number(r.total), assigned: Number(r.assigned), available: Number(r.total) - Number(r.assigned), sizes: PACKAGE_SIZES, standardColumns: STANDARD_COLUMNS });
 });
 
-app.post('/api/locations/:id/packages', async (req, res) => {
+app.post('/api/locations/:id/packages', ownLoc, async (req, res) => {
   const all = req.body?.size === 'all';
   const size = all ? 'all' : Number(req.body?.size);
   if (!all && !PACKAGE_SIZES.includes(size)) return res.status(400).json({ error: `size must be one of ${PACKAGE_SIZES.join(', ')} or "all"` });
@@ -435,69 +408,68 @@ app.post('/api/locations/:id/packages', async (req, res) => {
 });
 
 app.get('/api/packages', async (req, res) => {
-  const { rows } = await q(`SELECT * FROM packages WHERE ($1::text IS NULL OR location_id=$1) ORDER BY id DESC LIMIT 100`, [req.query.locationId || null]);
+  const { rows } = await q(`SELECT p.* FROM packages p JOIN locations l ON l.location_id=p.location_id WHERE l.owner_id=$2 AND ($1::text IS NULL OR p.location_id=$1) ORDER BY p.id DESC LIMIT 100`, [req.query.locationId || null, me(req)]);
   res.json(rows.map(p => ({ ...p, progress: { copied: p.progress?.copied, total: p.progress?.total, failed: p.progress?.failed?.length || 0, all: !!p.progress?.all } })));
 });
 
-app.delete('/api/packages/:id', async (req, res) => { await dissolvePackage(req.params.id); res.json({ ok: true }); });
+app.delete('/api/packages/:id', ownPkg, async (req, res) => { await dissolvePackage(req.params.id); res.json({ ok: true }); });
 
 // --- push to another sub-account -------------------------------------------------------
+// Both ends of a push must be the caller's locations (a package's location counts as the source).
+async function pushEnds(req, res) {
+  const b = req.body || {};
+  let src = b.sourceLocationId;
+  if (!src && b.packageId) { const { rows: [p] } = await q('SELECT location_id FROM packages WHERE id=$1', [b.packageId]); src = p?.location_id; }
+  if (!src || !b.targetLocationId) { res.status(400).json({ error: 'source and target are required' }); return false; }
+  const { rows } = await q('SELECT location_id FROM locations WHERE owner_id=$1 AND location_id = ANY($2::text[])', [me(req), [src, b.targetLocationId]]);
+  if (rows.length !== new Set([src, b.targetLocationId]).size) { res.status(404).json({ error: 'Source or target is not in your vault' }); return false; }
+  return true;
+}
 app.post('/api/pushes/preview', async (req, res) => {
-  try {
-    const m = await previewMapping(req.body || {});
-    // Does the token we'd use on the target actually carry write scopes?
-    let perms = null;
-    try {
-      const t = await tokenScopes(req.body.targetLocationId);
-      const need = [...PUSH_WRITE_SCOPES, ...(req.body.include?.opportunities ? ['opportunities.write'] : [])];
-      perms = t.scopes ? { kind: t.kind, has: t.scopes, missing: need.filter(s => !t.scopes.includes(s)) } : { kind: t.kind, has: null, missing: [] };
-    } catch (err) { perms = { error: err.message }; }
-    res.json({ ...m, perms });
-  } catch (err) { res.status(400).json({ error: err.message }); }
-});
-app.get('/api/locations/:id/scopes', async (req, res) => {
-  try { res.json(await tokenScopes(req.params.id)); } catch (err) { res.status(400).json({ error: err.message }); }
+  if (!(await pushEnds(req, res))) return;
+  try { res.json(await previewMapping(req.body || {})); } catch (err) { res.status(400).json({ error: err.message }); }
 });
 app.post('/api/pushes', async (req, res) => {
+  if (!(await pushEnds(req, res))) return;
   try { res.json(await createPush(req.body || {})); } catch (err) { res.status(400).json({ error: err.message }); }
 });
 app.get('/api/pushes', async (req, res) => {
   const loc = req.query.locationId || null;
   const { rows } = await q(`
     SELECT p.*, s.name AS source_name, t.name AS target_name
-    FROM pushes p LEFT JOIN locations s ON s.location_id=p.source_location_id LEFT JOIN locations t ON t.location_id=p.target_location_id
-    WHERE $1::text IS NULL OR p.source_location_id=$1 OR p.target_location_id=$1
-    ORDER BY p.id DESC LIMIT 100`, [loc]);
+    FROM pushes p JOIN locations s ON s.location_id=p.source_location_id LEFT JOIN locations t ON t.location_id=p.target_location_id
+    WHERE s.owner_id=$2 AND ($1::text IS NULL OR p.source_location_id=$1 OR p.target_location_id=$1)
+    ORDER BY p.id DESC LIMIT 100`, [loc, me(req)]);
   res.json(rows);
 });
-app.post('/api/pushes/:id/cancel', async (req, res) => {
+app.post('/api/pushes/:id/cancel', ownPush, async (req, res) => {
   await q(`UPDATE pushes SET status='cancelled', finished_at=now() WHERE id=$1 AND status IN ('queued','running')`, [req.params.id]); res.json({ ok: true });
 });
-app.post('/api/pushes/:id/resume', async (req, res) => {
+app.post('/api/pushes/:id/resume', ownPush, async (req, res) => {
   await q(`UPDATE pushes SET status='queued', finished_at=NULL, not_before=NULL, error=NULL WHERE id=$1 AND (status IN ('cancelled','failed') OR not_before IS NOT NULL)`, [req.params.id]); res.json({ ok: true });
 });
-app.delete('/api/pushes/:id', async (req, res) => {
+app.delete('/api/pushes/:id', ownPush, async (req, res) => {
   await q(`DELETE FROM pushes WHERE id=$1 AND status NOT IN ('running')`, [req.params.id]); res.json({ ok: true });
 });
 
-app.get('/api/packages/:id/contacts.csv', async (req, res) => {
+app.get('/api/packages/:id/contacts.csv', ownPkg, async (req, res) => {
   const { rows: [pkg] } = await q('SELECT * FROM packages WHERE id=$1', [req.params.id]);
   if (!pkg?.r2_prefix) return res.status(404).send('package not built yet');
   res.set('Content-Type', 'text/csv').set('Content-Disposition', `attachment; filename="package-${pkg.id}-contacts.csv"`);
   (await getObjectStream(`${pkg.r2_prefix}/contacts.csv`)).pipe(res);
 });
-app.get('/api/packages/:id/manifest.csv', async (req, res) => {
+app.get('/api/packages/:id/manifest.csv', ownPkg, async (req, res) => {
   const { rows: [pkg] } = await q('SELECT * FROM packages WHERE id=$1', [req.params.id]);
   if (!pkg?.r2_prefix) return res.status(404).send('package not built yet');
   res.set('Content-Type', 'text/csv').set('Content-Disposition', `attachment; filename="package-${pkg.id}-manifest.csv"`);
   (await getObjectStream(`${pkg.r2_prefix}/manifest.csv`)).pipe(res);
 });
-app.get('/api/packages/:id/export', async (req, res) => {
+app.get('/api/packages/:id/export', ownPkg, async (req, res) => {
   const { rows: [pkg] } = await q('SELECT * FROM packages WHERE id=$1', [req.params.id]);
   if (!pkg) return res.status(404).send('no such package');
   res.redirect(`/api/locations/${pkg.location_id}/export?scope=package:${pkg.id}`);
 });
-app.get('/api/packages/:id/export.zip', async (req, res) => {
+app.get('/api/packages/:id/export.zip', ownPkg, async (req, res) => {
   const { rows: [pkg] } = await q('SELECT * FROM packages WHERE id=$1', [req.params.id]);
   if (!pkg?.r2_prefix || pkg.status !== 'done') return res.status(404).send('package not built yet');
   if (pkg.file_count > ZIP_MAX_FILES) {
@@ -512,15 +484,15 @@ app.get('/api/packages/:id/export.zip', async (req, res) => {
 });
 
 // --- analytics ------------------------------------------------------------------------
-app.get('/api/locations/:id/analytics', async (req, res) => {
+app.get('/api/locations/:id/analytics', ownLoc, async (req, res) => {
   const [sum, brk] = await Promise.all([summary(req.params.id), breakdowns(req.params.id)]);
   res.json({ summary: sum, ...brk });
 });
-app.post('/api/locations/:id/search', async (req, res) => {
+app.post('/api/locations/:id/search', ownLoc, async (req, res) => {
   const { filters = {}, page, limit } = req.body || {};
   res.json(await search(req.params.id, filters, { page, limit }));
 });
-app.post('/api/locations/:id/search.csv', async (req, res) => {
+app.post('/api/locations/:id/search.csv', ownLoc, async (req, res) => {
   const filters = req.body?.filters || {};
   res.set('Content-Type', 'text/csv').set('Content-Disposition', `attachment; filename="${req.params.id}-filtered.csv"`);
   const cols = ['contact_id','first_name','last_name','email','phone','company','address','city','state','postal_code','tags','date_added','docs'];
@@ -530,7 +502,7 @@ app.post('/api/locations/:id/search.csv', async (req, res) => {
 });
 
 // --- debug: see exactly what GHL returns for one contact -------------------------------
-app.get('/api/locations/:id/debug/:contactId', async (req, res) => {
+app.get('/api/locations/:id/debug/:contactId', ownLoc, async (req, res) => {
   const { id, contactId } = req.params;
   try {
     const defs = await ghl(id, 'GET', `/locations/${id}/customFields`, { query: { model: 'contact' } });
@@ -548,7 +520,7 @@ app.get('/api/locations/:id/debug/:contactId', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/locations/:id/failures', async (req, res) => {
+app.get('/api/locations/:id/failures', ownLoc, async (req, res) => {
   const { rows } = await q(`
     SELECT error, count(*) AS n, min(source_url) AS sample_url, min(source) AS source, min(field_name) AS field_name
     FROM files WHERE location_id=$1 AND status='failed' GROUP BY error ORDER BY n DESC LIMIT 30`, [req.params.id]);
@@ -558,29 +530,29 @@ app.get('/api/locations/:id/failures', async (req, res) => {
 });
 
 // --- usage analytics ---------------------------------------------------------------------
-app.get('/api/usage/overview', async (req, res) => res.json(await agencyOverview(req.query.from, req.query.to)));
-app.get('/api/locations/:id/usage', async (req, res) => res.json(await locationUsage(req.params.id, req.query.from, req.query.to)));
-app.get('/api/locations/:id/usage/users', async (req, res) => res.json(await userUsage(req.params.id, req.query.from, req.query.to)));
-app.get('/api/locations/:id/usage/daily', async (req, res) => res.json(await dailySeries(req.params.id, req.query.from, req.query.to, req.query.userId)));
+app.get('/api/usage/overview', async (req, res) => res.json(await agencyOverview(req.query.from, req.query.to, me(req))));
+app.get('/api/locations/:id/usage', ownLoc, async (req, res) => res.json(await locationUsage(req.params.id, req.query.from, req.query.to)));
+app.get('/api/locations/:id/usage/users', ownLoc, async (req, res) => res.json(await userUsage(req.params.id, req.query.from, req.query.to)));
+app.get('/api/locations/:id/usage/daily', ownLoc, async (req, res) => res.json(await dailySeries(req.params.id, req.query.from, req.query.to, req.query.userId)));
 
-app.post('/api/locations/:id/report-token', async (req, res) => {
+app.post('/api/locations/:id/report-token', ownLoc, async (req, res) => {
   const token = crypto.randomBytes(18).toString('base64url');
   await q('UPDATE locations SET report_token=$2 WHERE location_id=$1', [req.params.id, token]);
   res.json({ token, url: `${req.protocol}://${req.get('host')}/report/${token}` });
 });
-app.delete('/api/locations/:id/report-token', async (req, res) => { await q('UPDATE locations SET report_token=NULL WHERE location_id=$1', [req.params.id]); res.json({ ok: true }); });
-app.get('/api/locations/:id/events', async (req, res) => {
+app.delete('/api/locations/:id/report-token', ownLoc, async (req, res) => { await q('UPDATE locations SET report_token=NULL WHERE location_id=$1', [req.params.id]); res.json({ ok: true }); });
+app.get('/api/locations/:id/events', ownLoc, async (req, res) => {
   const { rows } = await q(`SELECT event_type, count(*) AS n, max(occurred_at) AS last FROM events WHERE location_id=$1 GROUP BY 1 ORDER BY 2 DESC`, [req.params.id]);
   res.json(rows);
 });
 
 // --- master search across all sub-accounts ---------------------------------------------
-app.get('/api/search/totals', async (_req, res) => res.json(await agencyTotals()));
-app.get('/api/search/contacts', async (req, res) => res.json(await searchContacts(req.query.q || '', { locationId: req.query.loc || null, limit: Math.min(200, Number(req.query.limit) || 50), offset: Number(req.query.offset) || 0 })));
-app.get('/api/search/files', async (req, res) => res.json(await searchFiles(req.query.q || '', { locationId: req.query.loc || null, limit: Math.min(200, Number(req.query.limit) || 50), offset: Number(req.query.offset) || 0 })));
-app.get('/api/search/contact/:loc/:id', async (req, res) => res.json(await contactDetail(req.params.loc, req.params.id)));
+app.get('/api/search/totals', async (req, res) => res.json(await agencyTotals(me(req))));
+app.get('/api/search/contacts', async (req, res) => res.json(await searchContacts(req.query.q || '', { locationId: req.query.loc || null, limit: Math.min(200, Number(req.query.limit) || 50), offset: Number(req.query.offset) || 0, ownerId: me(req) })));
+app.get('/api/search/files', async (req, res) => res.json(await searchFiles(req.query.q || '', { locationId: req.query.loc || null, limit: Math.min(200, Number(req.query.limit) || 50), offset: Number(req.query.offset) || 0, ownerId: me(req) })));
+app.get('/api/search/contact/:loc/:id', async (req, res) => { if (!(await own(req, res, req.params.loc))) return; res.json(await contactDetail(req.params.loc, req.params.id, me(req))); });
 app.get('/api/files/:id/download', async (req, res) => {
-  const { rows: [f] } = await q(`SELECT r2_key, original_filename FROM files WHERE id=$1 AND status='done'`, [req.params.id]);
+  const { rows: [f] } = await q(`SELECT f.r2_key, f.original_filename FROM files f JOIN locations l ON l.location_id=f.location_id WHERE f.id=$1 AND f.status='done' AND l.owner_id=$2`, [req.params.id, me(req)]);
   if (!f?.r2_key) return res.status(404).send('not found');
   res.redirect(await presign(f.r2_key, f.original_filename || f.r2_key.split('/').pop(), 3600));
 });
@@ -595,6 +567,8 @@ app.use((err, req, res, _next) => {
 const port = process.env.PORT || 3000;
 for (const k of ['R2_ACCOUNT_ID','R2_ACCESS_KEY_ID','R2_SECRET_ACCESS_KEY','R2_BUCKET'])
   if (!process.env[k]) console.warn(`WARN: ${k} not set — downloads will fail until it is`);
+for (const k of ['HUB_URL','HUB_JWT_SECRET','HUB_SERVICE_KEY'])
+  if (!process.env[k]) console.warn(`WARN: ${k} not set — login and GHL credentials come from the hub`);
 
 migrate()
   .then(() => {

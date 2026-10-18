@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Data Vault — back up every file in your HighLevel sub-accounts</title>
+<meta name="description" content="Data Vault copies every file upload, recording, form attachment, media file and signed document out of your GoHighLevel sub-accounts into your own storage, with a manifest that joins back to your contacts. Monthly backups across the whole agency, rep packages, master search, usage analytics.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/tool.css">
+<script src="/config.js"></script>
+<style>
+  .hero { padding: 56px 0 40px; max-width: 720px; }
+  .hero h1 { font-size: clamp(30px, 5vw, 46px); font-weight: 900; line-height: 1.08; letter-spacing: -.01em; margin-bottom: 16px; }
+  .hero h1 em { font-style: normal; color: var(--accent); }
+  .hero p { font-size: 17px; color: var(--muted); line-height: 1.55; margin-bottom: 26px; }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .cta .price { font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: var(--dim); }
+  .demo { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow: auto; margin: 10px 0 48px; }
+  .demo .bar { display: flex; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+  .demo .bar i { width: 10px; height: 10px; border-radius: 50%; background: var(--line); display: block; }
+  .demo td, .demo th { white-space: nowrap; }
+  .feat { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 48px; }
+  .feat .panel { margin: 0; } .feat h3 { font-size: 15px; font-weight: 800; margin-bottom: 6px; } .feat p { color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 48px; }
+  .steps .n { font-family: 'IBM Plex Mono', monospace; color: var(--accent); font-size: 12px; margin-bottom: 6px; }
+  .pricing { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; max-width: 720px; margin-bottom: 48px; }
+  .pricing .p { font-size: 34px; font-weight: 900; } .pricing .d { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--dim); margin: 4px 0 14px; }
+  .pricing ul { list-style: none; margin: 0 0 16px; color: var(--muted); font-size: 13.5px; line-height: 1.8; }
+  .pricing li::before { content: '✓ '; color: var(--contact); }
+  footer { color: var(--dim); font-size: 12px; font-family: 'IBM Plex Mono', monospace; padding-top: 24px; border-top: 1px solid var(--line); }
+  h2 { font-size: 22px; font-weight: 900; margin-bottom: 16px; }
+  .play { color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <div class="logo"><a href="/"><span class="mark">GHL</span> Data Vault</a></div>
+    <span class="spacer"></span>
+    <a class="icon-btn" id="loginLink" href="#">Log in</a>
+    <a class="btn" id="startTop" href="#">Start now</a>
+  </nav>
+
+  <section class="hero">
+    <h1>The one export HighLevel doesn't give you: <em>the files.</em></h1>
+    <p>CSV export covers contacts, not the bank statements, signed contracts, recordings and attachments inside them. Data Vault crawls every place a file can live in a sub-account, copies it to your own storage, and writes a manifest that joins back to your contacts. Then keeps it current every month, across the whole agency.</p>
+    <div class="cta">
+      <a class="btn" id="startHero" href="#">Start now</a>
+      <span class="price">Connect your agency once. Back up every sub-account.</span>
+    </div>
+  </section>
+
+  <div class="demo">
+    <div class="bar"><i></i><i></i><i></i></div>
+    <table>
+      <thead><tr><th>Sub-account</th><th>Status</th><th>Contacts</th><th>Files</th><th>Size</th><th>Last run</th></tr></thead>
+      <tbody>
+        <tr><td class="fname">Bright Line Advance</td><td><span class="pill contact">done</span></td><td><span class="mono-cell">18,402</span></td><td><span class="mono-cell">61,870</span></td><td><span class="mono-cell">84.2 GB</span></td><td><span class="mono-cell">2h ago · auto</span></td></tr>
+        <tr><td class="fname">Milano Capital Group</td><td><span class="pill opportunity">running</span></td><td><span class="mono-cell">9,118</span></td><td><span class="mono-cell">22,301</span></td><td><span class="mono-cell">31.5 GB</span></td><td><span class="mono-cell">contact_fields · 6,420/9,118</span></td></tr>
+        <tr><td class="fname">Cedars Landscaping</td><td><span class="pill contact">done</span></td><td><span class="mono-cell">1,204</span></td><td><span class="mono-cell">3,988</span></td><td><span class="mono-cell">5.1 GB</span></td><td><span class="mono-cell">yesterday · sync</span></td></tr>
+        <tr><td class="fname">Harbor Financial Co</td><td><span class="pill value">queued</span></td><td><span class="mono-cell">4,760</span></td><td><span class="mono-cell">—</span></td><td><span class="mono-cell">—</span></td><td><span class="mono-cell">never</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>What you get</h2>
+  <div class="feat">
+    <div class="panel"><h3>Every file, every source</h3><p>Contact and opportunity file fields, conversation attachments, call recordings and voicemails, form and survey uploads, the media library, signed documents.</p></div>
+    <div class="panel"><h3>A manifest you can join</h3><p>Each file is tied to its contact, opportunity, conversation or submission — so the export matches the CSVs you already have.</p></div>
+    <div class="panel"><h3>Monthly, across the agency</h3><p>Pick a day and hour. Every sub-account gets an incremental backup; new sub-accounts join automatically. Jobs resume after restarts and respect GHL's daily API quota.</p></div>
+    <div class="panel"><h3>Rep packages and pushes</h3><p>Split a sub-account's contacts into non-overlapping packages with their files, or push contacts + documents into another sub-account through the API.</p></div>
+    <div class="panel"><h3>Master search</h3><p>Search every backed-up sub-account at once by name, email, phone, filename or any custom field value. Find the same person across sub-accounts.</p></div>
+    <div class="panel"><h3>Usage analytics</h3><p>Per-sub-account and per-user activity: messages, calls, talk time, deals, idle seats. Printable owner reports with a share link.</p></div>
+  </div>
+
+  <h2>How it works</h2>
+  <div class="steps">
+    <div class="panel"><div class="n">01</div><h3>Create an account</h3><p class="dim">One account works across every tool we make.</p></div>
+    <div class="panel"><div class="n">02</div><h3>Connect</h3><p class="dim">Install for your whole agency in one click, or connect a single sub-account with a token.</p></div>
+    <div class="panel"><div class="n">03</div><h3>Back up</h3><p class="dim">Run once, then schedule it monthly. Download zip parts straight from storage or share a link.</p></div>
+  </div>
+
+  <h2>Pricing</h2>
+  <div class="pricing">
+    <div class="panel">
+      <div class="p" id="priceTool">—</div><div class="d">per month · unlimited sub-accounts</div>
+      <ul><li>All seven file sources</li><li>Monthly agency-wide backups</li><li>Packages, pushes, master search</li><li>Usage analytics + owner reports</li></ul>
+      <a class="btn" id="startPrice" href="#">Start now</a>
+    </div>
+    <div class="panel" id="bundleCard" style="display:none">
+      <div class="p" id="priceBundle">—</div><div class="d">per month · every tool we make</div>
+      <ul><li>Data Vault plus all our HighLevel tools</li><li>One login, one connection, everything unlocked</li></ul>
+      <a class="btn ghost" id="startBundle" href="#">See the bundle</a>
+    </div>
+  </div>
+
+  <footer>Data Vault is an independent product and is not affiliated with or endorsed by HighLevel Inc.</footer>
+</div>
+<script>
+(function () {
+  const HUB = window.HUB_URL, slug = window.TOOL_SLUG;
+  const here = location.origin + '/app';
+  const signup = `${HUB}/signup?tool=${slug}&return=${encodeURIComponent(here)}`;
+  for (const id of ['startTop', 'startHero', 'startPrice']) document.getElementById(id).href = signup;
+  document.getElementById('loginLink').href = `${HUB}/login?return=${encodeURIComponent(here)}`;
+  document.getElementById('startBundle').href = `${HUB}/app`;
+  document.documentElement.dataset.theme = localStorage.getItem('fl-theme') || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+  fetch(`${HUB}/api/tools`).then((r) => r.json()).then((c) => {
+    const t = (c.tools || []).find((x) => x.slug === slug);
+    if (t) document.getElementById('priceTool').textContent = t.priceLabel.replace(/\/mo$/, '');
+    if (c.bundle?.available) { document.getElementById('priceBundle').textContent = c.bundle.priceLabel.replace(/\/mo$/, ''); document.getElementById('bundleCard').style.display = ''; }
+  }).catch(() => {});
+})();
+</script>
+</body>
+</html>

@@ -24,17 +24,17 @@
   function bar() {
     if (noBar || document.querySelector('.topbar')) return;
     const links = [
-      ['locations', '/', 'Locations'],
+      ['locations', '/app', 'Locations'],
       ['search', '/search.html', 'Master search'],
       ['usage', '/usage.html', 'Usage'],
     ];
     const el = document.createElement('header');
     el.className = 'topbar';
-    el.innerHTML = `<a class="brand" href="/"><b>GHL Vault</b><small>file exporter</small></a>
+    el.innerHTML = `<a class="brand" href="/app"><b>Data Vault</b><small>file exporter</small></a>
       <nav>${links.map(([k, href, label]) => `<a href="${href}" class="${k === page ? 'on' : ''}">${label}</a>`).join('')}</nav>
       <span class="sp"></span><span class="status" id="conn"></span>
       <button class="iconbtn" id="themeToggle" title="Switch light / dark" aria-label="Switch theme">${SUN}${MOON}</button>
-      <a class="logout" href="/logout">Log out</a>`;
+      <a class="logout" href="${(window.HUB_URL || '') + '/app'}">Account</a>`;
     document.body.prepend(el);
     el.querySelector('#themeToggle').onclick = () => window.vaultTheme.toggle();
   }

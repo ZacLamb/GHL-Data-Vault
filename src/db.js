@@ -220,11 +220,13 @@ export async function migrate() {
       created_at TIMESTAMPTZ DEFAULT now(), finished_at TIMESTAMPTZ,
       UNIQUE (location_id, scope, part)
     );
+    -- Multi-tenant: every location belongs to one hub account. Tokens are never stored here any more.
+    ALTER TABLE locations ADD COLUMN IF NOT EXISTS owner_id INT;
+    CREATE INDEX IF NOT EXISTS locations_owner ON locations(owner_id);
     ALTER TABLE contacts ADD COLUMN IF NOT EXISTS assigned_to TEXT;
     ALTER TABLE contacts ADD COLUMN IF NOT EXISTS created_by_user TEXT;
     ALTER TABLE contacts ADD COLUMN IF NOT EXISTS source TEXT;
   `);
   // One-time cleanup: recordings that 422'd are calls with no recording, not failures.
   await q(`UPDATE files SET status='skipped', error='no recording' WHERE source='recording' AND status='failed' AND error LIKE 'HTTP 422%'`);
-  await q(`UPDATE files SET status='skipped', error='expired social-media link (Meta CDN)' WHERE status='failed' AND error LIKE 'HTTP 4%' AND source_url ~* '(fbsbx\\.com|fbcdn\\.net|cdninstagram\\.com|instagram\\.com|facebook\\.com)/'`);
 }

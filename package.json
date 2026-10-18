@@ -1,7 +1,7 @@
 {
-  "name": "ghl-vault",
+  "name": "data-vault",
   "version": "0.1.0",
-  "description": "Exports every file stored in GoHighLevel sub-accounts (custom field uploads, conversation attachments, recordings, form/survey uploads, media library, documents & contracts) to Cloudflare R2 with a joinable manifest.",
+  "description": "Back up every file in your GoHighLevel sub-accounts to R2 with a joinable manifest — on the RGS Tools Hub.",
   "main": "src/server.js",
   "type": "module",
   "scripts": {
@@ -16,6 +16,8 @@
     "archiver": "^7.0.1",
     "express": "^4.19.2",
     "pg": "^8.12.0",
-    "@aws-sdk/s3-request-presigner": "^3.650.0"
+    "@aws-sdk/s3-request-presigner": "^3.650.0",
+    "cookie-parser": "^1.4.6",
+    "jsonwebtoken": "^9.0.2"
   }
 }

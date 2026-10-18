@@ -16,8 +16,7 @@ const FILES_PER_REQUEST = Number(process.env.PUSH_FILES_PER_REQUEST || 1);   // 
 const DEFAULT_MAX_FILES = Number(process.env.PUSH_FILE_FIELD_MAX || 25);
 
 // ---------- creation ----------
-export async function createPush({ targetLocationId, sourceLocationId, packageId, filters, include = {}, tag, label, limit }) {
-  limit = Number(limit) > 0 ? Math.floor(Number(limit)) : null;
+export async function createPush({ targetLocationId, sourceLocationId, packageId, filters, include = {}, tag, label }) {
   if (!targetLocationId) throw new Error('targetLocationId required');
   if (!packageId && !sourceLocationId) throw new Error('packageId or sourceLocationId required');
   let src = sourceLocationId;
@@ -29,8 +28,8 @@ export async function createPush({ targetLocationId, sourceLocationId, packageId
   if (src === targetLocationId) throw new Error('source and target are the same sub-account');
   const { rows: [t] } = await q('SELECT 1 FROM locations WHERE location_id=$1', [targetLocationId]);
   if (!t) throw new Error('target sub-account is not in the vault — import it first');
-  const counts = await previewCounts({ sourceLocationId: src, packageId, filters, limit });
-  const options = { include: { documents: include.documents !== false, opportunities: !!include.opportunities, customFields: include.customFields !== false }, tag: tag || null, filters: filters || null, limit };
+  const counts = await previewCounts({ sourceLocationId: src, packageId, filters });
+  const options = { include: { documents: include.documents !== false, opportunities: !!include.opportunities, customFields: include.customFields !== false }, tag: tag || null, filters: filters || null };
   const { rows: [push] } = await q(
     `INSERT INTO pushes (source_location_id, target_location_id, package_id, label, options, status, progress)
      VALUES ($1,$2,$3,$4,$5,'queued',$6) RETURNING *`,
@@ -46,9 +45,8 @@ function contactSet({ sourceLocationId, packageId, filters }) {
   return { sql: `SELECT c.* FROM contacts c WHERE ${f.sql}`, params: f.params };
 }
 
-export async function previewCounts({ sourceLocationId, packageId, filters, limit }) {
-  let { sql: set, params } = contactSet({ sourceLocationId, packageId, filters });
-  if (Number(limit) > 0) set = `${set} ORDER BY c.contact_id LIMIT ${Math.floor(Number(limit))}`;   // test sample: first N
+export async function previewCounts({ sourceLocationId, packageId, filters }) {
+  const { sql: set, params } = contactSet({ sourceLocationId, packageId, filters });
   const { rows: [r] } = await q(`
     WITH s AS (${set})
     SELECT (SELECT count(*) FROM s) AS contacts,
@@ -61,8 +59,8 @@ export async function previewCounts({ sourceLocationId, packageId, filters, limi
 }
 
 // What will happen to each field in the target: exists (with type) or will be created.
-export async function previewMapping({ sourceLocationId, packageId, filters, targetLocationId, limit }) {
-  const counts = await previewCounts({ sourceLocationId, packageId, filters, limit });
+export async function previewMapping({ sourceLocationId, packageId, filters, targetLocationId }) {
+  const counts = await previewCounts({ sourceLocationId, packageId, filters });
   const tf = await targetFields(targetLocationId);
   const byName = new Map(tf.map(f => [norm(f.name), f]));
   const fields = [];
@@ -137,25 +135,19 @@ export async function runPush(push) {
     while (true) {
       const { rows } = await q(`${set} AND c.contact_id > $${params.length + 1} ORDER BY c.contact_id LIMIT ${BATCH}`, [...params, cursor]);
       if (!rows.length) break;
-      let stop = false;
       for (const c of rows) {
-        if (opts.limit && progress.contactsDone >= opts.limit) { stop = true; break; }
         try {
           const tid = await pushContact(c, { source, target, tag: opts.tag, fieldFor, inc, progress });
           if (inc.documents) await pushFiles(c, tid, { source, target, fieldFor, progress, fail });
           if (inc.opportunities && stageMap) await pushOpportunities(c, tid, { source, target, stageMap, progress, fail });
         } catch (err) {
           if (err.dailyLimit || err.cancelled) throw err;
-          if (/401.*not authorized for this scope/i.test(err.message)) {
-            throw new Error('The agency app token has no WRITE permission on the target. Add contacts.write, locations/customFields.write, opportunities.write and forms.write to the marketplace app\'s scopes, then click "Reconnect agency app" on the dashboard and Resume this push.');
-          }
           fail(`contact ${c.contact_id}`, err);
         }
         progress.contactsDone++;
         cursor = c.contact_id; progress.cursor = cursor;
       }
       await save(`${progress.contactsDone.toLocaleString()} / ${Number(progress.total).toLocaleString()} contacts`);
-      if (stop) break;
     }
     delete progress.cursor;
     await q(`UPDATE pushes SET status='done', finished_at=now(), progress=$2 WHERE id=$1`, [push.id, progress]);

@@ -1,4 +1,4 @@
-# GHL Vault — file exporter for GoHighLevel sub-accounts
+# Data Vault — file exporter for GoHighLevel sub-accounts
 
 GHL's CSV export covers every data set except file uploads. This tool crawls every place a file can live
 in a sub-account, streams each file into Cloudflare R2, and writes a manifest you can join back to your
@@ -22,19 +22,26 @@ field_id, field_name, original_filename, mime_type, size_bytes, r2_key, source_u
 
 ## Deploy (GitHub → Railway)
 
-1. Push this repo to GitHub, create a Railway service from it, add a Postgres plugin (Railway sets `DATABASE_URL`).
-2. Set the env vars from `.env.example`. Create an R2 bucket + API token (Object Read & Write).
-3. Open the service URL, log in with `ADMIN_PASSWORD` (any username).
+Runs on the RGS Tools Hub: login, billing and GHL credentials come from the hub. Each location in the
+vault belongs to one hub account (`locations.owner_id`); the server asks the hub for that account's
+token for the location whenever it needs one. No PIT or agency token is stored or configured here.
 
-## Auth options
+1. Railway service from this repo, with a Postgres plugin (`DATABASE_URL`) and an R2 bucket + API token.
+2. Env vars: `HUB_URL`, `HUB_JWT_SECRET`, `HUB_SERVICE_KEY` (same values as the hub), `R2_ACCOUNT_ID`,
+   `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, optional `TZ`, `WEBHOOK_KEY`, `SESSION_SECRET`.
+3. Custom domain on the hub's cookie domain (e.g. `vault.yourbizzassist.co`); hub var
+   `TOOL_URL_DATA_VAULT=https://vault.yourbizzassist.co`.
+4. `/` is the landing page, `/app` the dashboard.
 
-- **Per-location PIT** — Settings → Private Integrations in the sub-account. Scopes needed: contacts, opportunities,
-  conversations, conversations/message, forms, surveys, locations, locations/customFields, medias, documents/contracts (all read).
-  Paste it when adding the location. Fine for a handful of accounts.
-- **Agency OAuth (recommended for 85+)** — create a marketplace app (private, agency-level distribution) with the same
-  read scopes, install it at the agency, put the agency access token + company id in env. Click **Import sub-accounts**
-  and the tool mints per-location tokens automatically (`POST /oauth/locationToken`). You'll want a small refresh cron
-  for the agency token since it expires in 24h.
+## Adding sub-accounts
+
+Sub-accounts come from the account's connections on the hub (a pasted token, or the whole agency via the
+marketplace install). **Import connected sub-accounts** brings every one of them into the vault;
+**Add one sub-account** picks a single connected one. A sub-account can be vaulted by one hub account
+only (one copy of the data) — a second account trying to add it is told it is held elsewhere.
+
+Everything an account sees — locations, jobs, packages, pushes, shares, master search, usage overview,
+the monthly schedule — is scoped to that account.
 
 ## Running an export
 
@@ -103,7 +110,7 @@ available through the public API; "active days" is the closest proxy.
   (users with no outbound activity in 30 days). The per-user table shows a **status** (active / low / inactive / none).
 - **Owner report link** (on a location's usage page) creates a read-only `/report/<token>` page — light theme,
   printable, no login, last 7/30/90 days, that account only, no emails shown. Generating a new link revokes the old.
-- **Audit stream**: create an agency-level marketplace app, subscribe to webhook events (ContactCreate/Update/Delete,
+- **Audit stream**: on the hub's marketplace app, subscribe to webhook events (ContactCreate/Update/Delete,
   NoteCreate, TaskCreate/Complete, OpportunityStageUpdate/StatusUpdate, OutboundMessage, InboundMessage,
   AppointmentCreate, UserCreate…) and set the webhook URL to `https://<host>/webhooks/ghl?key=<WEBHOOK_KEY>`.
   Events land in the `events` table and surface as Notes / Tasks / Edits / Stage moves columns per user.
@@ -118,19 +125,14 @@ phone. Data is the vault copy, so run exports / Sync new to keep it current.
 
 ## Whole-agency setup + monthly auto-backup
 
-1. Set `GHL_COMPANY_ID` and an agency credential in Railway. Easiest: an **agency-level Private Integration** token
-   (`GHL_AGENCY_PIT`) with read scopes for contacts, conversations, opportunities, forms, surveys, medias, locations,
-   users, calendars. Alternatively a marketplace-app OAuth token with `GHL_CLIENT_ID/SECRET/REFRESH_TOKEN`; it refreshes itself.
-2. Click **Import all sub-accounts**. Every location lands in the vault with no per-location token needed.
+1. On the hub, install for your agency (one click) so every sub-account is connected.
+2. In the vault click **Import connected sub-accounts**.
 3. In the **Agency backup** panel choose day-of-month, hour (`TZ` env), sources, incremental vs full, and whether to
-   import new sub-accounts first. Save. Each month the scheduler queues one job per enabled location (first run is a
-   full crawl, later ones incremental). Untick "include in monthly backup" on any location to skip it.
+   import newly connected sub-accounts first. Save. Each month the scheduler queues one job per enabled location (first
+   run is a full crawl, later ones incremental). Untick "include in monthly backup" on any location to skip it.
 4. **Backup all now** does the same on demand. Jobs tagged "auto" came from the schedule.
 
-
 ## Push to another sub-account
-
-**Requires write scopes on the marketplace app:** `contacts.write`, `locations/customFields.write`, `opportunities.write`, `forms.write`. Add them under the app's Scopes, then click **Reconnect agency app** so the new permissions are granted.
 
 Open a location → **Push to another sub-account** in the drawer (or click **Push →** on a finished rep package).
 Pick the target, what to include (documents, custom field values, opportunities), and a tag; **Preview** shows the

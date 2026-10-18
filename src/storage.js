@@ -33,8 +33,6 @@ function filenameFrom(url, headers, fallback) {
  *            fieldId, fieldName, originalFilename, mimeType, size, authenticated }
  * `authenticated` = true when the URL is a GHL API endpoint needing the Bearer token (recordings).
  */
-const SOCIAL_CDN = /(^|\.)(fbsbx\.com|fbcdn\.net|cdninstagram\.com|instagram\.com|facebook\.com)\//i;
-
 export async function ingest(jobId, locationId, url, meta = {}) {
   const { rows: [existing] } = await q(
     `INSERT INTO files (location_id, job_id, source, contact_id, opportunity_id, conversation_id, message_id,
@@ -73,12 +71,6 @@ export async function ingest(jobId, locationId, url, meta = {}) {
       // Recording endpoint answers 422 when the call has no recording: that's "nothing to fetch", not a failure.
       if (meta.source === 'recording' && /HTTP 422/.test(lastErr?.message || '')) {
         await q(`UPDATE files SET status='skipped', error='no recording' WHERE id=$1`, [existing.id]);
-        return { ...existing, status: 'skipped' };
-      }
-      // Social-channel media (Instagram / Facebook DMs) lives on Meta's signed CDN, not in GHL. Those links
-      // expire; a 4xx there means the file is gone at the source and no retry will ever recover it.
-      if (SOCIAL_CDN.test(url) && /HTTP 4\d\d/.test(lastErr?.message || '')) {
-        await q(`UPDATE files SET status='skipped', error='expired social-media link (Meta CDN)' WHERE id=$1`, [existing.id]);
         return { ...existing, status: 'skipped' };
       }
       throw lastErr || new Error('no download candidates');
