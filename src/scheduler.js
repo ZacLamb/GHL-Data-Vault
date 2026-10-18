@@ -58,9 +58,11 @@ export function startScheduler() {
         if (!sch.enabled) continue;
         if (Number(parts.day) !== sch.day || Number(parts.hour) % 24 !== sch.hour) continue;
         if (sch.last?.trigger === 'scheduled' && sch.last?.stamp === stamp) continue;
-        const summary = await backupAll(owner_id, { trigger: 'scheduled' });
-        await q(`UPDATE settings SET value = value || $2 WHERE key=$1`, [`backup_last:${owner_id}`, { stamp }]);
-        console.log(`[scheduler] owner ${owner_id}: monthly backup queued: ${summary.queued} locations (${summary.skipped} busy)`);
+        try {   // one account's failure must not stop the others' monthly backups
+          const summary = await backupAll(owner_id, { trigger: 'scheduled' });
+          await q(`UPDATE settings SET value = value || $2 WHERE key=$1`, [`backup_last:${owner_id}`, { stamp }]);
+          console.log(`[scheduler] owner ${owner_id}: monthly backup queued: ${summary.queued} locations (${summary.skipped} busy)`);
+        } catch (err) { console.error(`[scheduler] owner ${owner_id}:`, err.message); }
       }
     } catch (err) { console.error('[scheduler]', err.message); }
   };

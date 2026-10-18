@@ -75,6 +75,31 @@ export async function importAgencyLocations(ownerId) {
   return { imported, total, elsewhere };
 }
 
+// --- 64-bit search cursors -------------------------------------------------------
+// Search cursors (`searchAfter`, e.g. [dateAdded epoch ms, id]) are the backend's raw sort values.
+// A record with no value in the sort field gets a 64-bit sentinel (Long.MAX/MIN), which a JS number
+// can't hold: JSON.parse rounds 9223372036854775807 to 9223372036854775808, and sending that back is
+// out of range, so GHL answers 400 "Error occurred while searching for contact". Big integers inside
+// a searchAfter array are therefore kept as marked strings ("#n:<digits>") and written back as raw
+// JSON numbers when the cursor is sent.
+const BIG = '#n:';
+const protectCursors = text => text.includes('"searchAfter"')
+  ? text.replace(/"searchAfter"\s*:\s*\[[^\]]*\]/g, arr => arr.replace(/([[,]\s*)(-?\d{16,})(?=\s*[,\]])/g, `$1"${BIG}$2"`))
+  : text;
+const toJson = body => JSON.stringify(body).replace(/"#n:(-?\d+)"/g, '$1');
+
+// A cursor saved before this fix may already hold a rounded sentinel (stored as 9223372036854775808
+// or 9.223372036854776e18). The only 64-bit values that round that far are the sentinels, so map them back.
+export function repairCursor(cursor) {
+  if (!Array.isArray(cursor)) return cursor;
+  return cursor.map(v => {
+    if (typeof v !== 'number' || Number.isSafeInteger(v) || !Number.isFinite(v)) return v;
+    if (v >= 9.2e18) return `${BIG}9223372036854775807`;
+    if (v <= -9.2e18) return `${BIG}-9223372036854775808`;
+    return v;
+  });
+}
+
 // --- generic request with retry -------------------------------------------------
 export async function ghl(locationId, method, path, { query, body, form, raw = false } = {}) {
   const url = new URL(BASE + path);
@@ -93,7 +118,7 @@ export async function ghl(locationId, method, path, { query, body, form, raw = f
           Accept: raw ? '*/*' : 'application/json',
           ...(body && !form ? { 'Content-Type': 'application/json' } : {}),
         },
-        body: form ? form : body ? JSON.stringify(body) : undefined,   // form = FormData (multipart; fetch sets the boundary)
+        body: form ? form : body ? toJson(body) : undefined,   // form = FormData (multipart; fetch sets the boundary)
         // A hung connection must not stall a crawl forever: give up on headers after 60s
         // (raw downloads stream the body under storage.js's own timeout) and retry.
         signal: AbortSignal.timeout(raw ? 120_000 : 60_000),
@@ -113,7 +138,7 @@ export async function ghl(locationId, method, path, { query, body, form, raw = f
         await sleep(1000 * 2 ** attempt);
         continue;
       }
-      try { return JSON.parse(text); } catch { throw new Error(`GHL ${method} ${path}: non-JSON response`); }
+      try { return JSON.parse(protectCursors(text)); } catch { throw new Error(`GHL ${method} ${path}: non-JSON response`); }
     }
 
     if (res.status === 429) {
