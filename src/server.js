@@ -565,6 +565,45 @@ app.get('/api/files/:id/download', async (req, res) => {
   res.redirect(await presign(f.r2_key, f.original_filename || f.r2_key.split('/').pop(), 3600));
 });
 
+// ---- Sub-accounts from before the hub ("orphans") ----
+// The vault used to hold its own Location ID + token per sub-account. Since the move to the hub, only
+// sub-accounts owned by a hub account are listed, so ones added the old way have no owner and are hidden.
+// Their backups are untouched. Only the hub admin (the vault's original owner) can see and link them.
+const adminOnly = (req, res, next) => (req.hubUser?.isAdmin ? next() : res.status(403).json({ error: 'Only the account owner can do this.' }));
+app.get('/api/orphans', adminOnly, async (_req, res) => {
+  const { rows } = await q(`
+    SELECT l.location_id, l.name, (l.pit_token IS NOT NULL AND l.pit_token <> '') AS has_token,
+           (SELECT count(*) FROM contacts c WHERE c.location_id=l.location_id)::int AS contacts,
+           (SELECT count(*) FROM files f WHERE f.location_id=l.location_id AND f.status='done')::int AS files
+    FROM locations l WHERE l.owner_id IS NULL ORDER BY l.name NULLS LAST, l.location_id`);
+  res.json(rows);
+});
+app.post('/api/orphans/link', adminOnly, async (req, res) => {
+  const HUB = (process.env.HUB_URL || '').replace(/\/$/, ''), KEY = process.env.HUB_SERVICE_KEY;
+  const connected = new Set((req.hubUser.connections || []).map((c) => c.location_id));
+  const { rows } = await q(`SELECT location_id, name, pit_token FROM locations WHERE owner_id IS NULL`);
+  const linked = [], needToken = [];
+  for (const l of rows) {
+    let ok = connected.has(l.location_id), why = '';
+    if (!ok && l.pit_token) {
+      try {
+        const r = await fetch(`${HUB}/internal/users/${me(req)}/connections`, {
+          method: 'POST', headers: { 'content-type': 'application/json', 'x-hub-service-key': KEY },
+          body: JSON.stringify({ locationId: l.location_id, pit: l.pit_token, label: l.name || undefined }), signal: AbortSignal.timeout(20_000),
+        });
+        const d = await r.json().catch(() => ({}));
+        ok = r.ok && d.ok; why = ok ? '' : (d.error || `hub said ${r.status}`);
+      } catch (e) { why = e.message; }
+    } else if (!ok) why = 'No saved token';
+    if (ok) {
+      // The token now lives on the hub; the vault keeps none.
+      await q(`UPDATE locations SET owner_id=$2, pit_token=NULL, oauth_token=NULL WHERE location_id=$1 AND owner_id IS NULL`, [l.location_id, me(req)]);
+      linked.push({ location_id: l.location_id, name: l.name });
+    } else needToken.push({ location_id: l.location_id, name: l.name, reason: why });
+  }
+  res.json({ linked, needToken });
+});
+
 app.get('/api/sources', (_req, res) => res.json(ALL_SOURCES));
 
 app.use((err, req, res, _next) => {
