@@ -554,6 +554,20 @@ app.get('/api/locations/:id/failures', ownLoc, async (req, res) => {
 app.get('/api/usage/overview', async (req, res) => res.json(await agencyOverview(req.query.from, req.query.to, me(req))));
 app.get('/api/locations/:id/usage', ownLoc, async (req, res) => res.json(await locationUsage(req.params.id, req.query.from, req.query.to)));
 app.get('/api/locations/:id/usage/users', ownLoc, async (req, res) => res.json(await userUsage(req.params.id, req.query.from, req.query.to)));
+// RGS Tools' own GHL API allowance per sub-account (every tool, counted on the hub). The hub answers for
+// the logged-in hub account only, so this lists that account's connected sub-accounts and nobody else's.
+app.get('/api/api-usage', async (req, res) => {
+  const HUB = (process.env.HUB_URL || '').replace(/\/$/, '');
+  try {
+    const r = await fetch(`${HUB}/internal/users/${encodeURIComponent(me(req))}/api-usage`, {
+      headers: { 'x-hub-service-key': process.env.HUB_SERVICE_KEY || '' }, signal: AbortSignal.timeout(15_000),
+    });
+    if (!r.ok) return res.status(502).json({ error: `Could not load API usage from RGS Tools (${r.status}). Try again in a minute.` });
+    res.json(await r.json());
+  } catch {
+    res.status(502).json({ error: 'Could not reach RGS Tools for API usage. Try again in a minute.' });
+  }
+});
 app.get('/api/locations/:id/usage/daily', ownLoc, async (req, res) => res.json(await dailySeries(req.params.id, req.query.from, req.query.to, req.query.userId)));
 
 app.post('/api/locations/:id/report-token', ownLoc, async (req, res) => {

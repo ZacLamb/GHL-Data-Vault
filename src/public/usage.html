@@ -22,6 +22,35 @@
   .chartbox { margin-bottom: 22px; }
   .table-wrap td b { font-weight: 550; }
   .note2 { font-size: 12px; color: var(--sec); padding: 0 14px; margin: -14px 0 22px; }
+  /* RGS Tools API usage (per sub-account, today + 30 days) */
+  .au-row { padding: 12px 14px; border-top: .5px solid var(--sep); }
+  .au-row:first-child { border-top: 0; }
+  .au-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; cursor: pointer; }
+  .au-top b { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .au-top .au-num { margin-left: auto; color: var(--sec); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .au-top .au-chev { color: var(--ter); display: inline-flex; transition: transform .15s; }
+  .au-top .au-chev svg.i { width: 14px; height: 14px; }
+  .au-row.open .au-chev { transform: rotate(90deg); }
+  .au-bar { height: 8px; border-radius: 4px; background: var(--fill); overflow: hidden; margin: 8px 0 7px; }
+  .au-bar i { display: block; height: 100%; border-radius: 4px; background: var(--blue); min-width: 2px; }
+  .au-bar.warn i { background: var(--orange); } .au-bar.bad i { background: var(--red); }
+  .au-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--sec); }
+  .au-meta .pill svg.i { width: 12px; height: 12px; }
+  .au-spark { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+  .au-spark svg { display: block; overflow: visible; }
+  .au-spark rect { fill: var(--blue); } .au-spark rect.today { fill: var(--blue); opacity: 1; } .au-spark rect.past { opacity: .55; }
+  .au-spark rect.hit { fill: transparent; opacity: 1; }
+  .au-detail { display: none; padding-top: 10px; }
+  .au-row.open .au-detail { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+  .au-detail h4 { font-size: 11.5px; font-weight: 600; color: var(--sec); text-transform: uppercase; letter-spacing: .02em; margin: 0 0 4px; }
+  .au-detail .bars { padding: 0; } .au-detail .bars .bar { padding: 4px 0; }
+  .au-hours { display: flex; align-items: flex-end; gap: 2px; height: 56px; }
+  .au-hours div { flex: 1; min-width: 3px; background: var(--fill-2); border-radius: 2px 2px 0 0; position: relative; height: 100%; }
+  .au-hours div i { position: absolute; left: 0; right: 0; bottom: 0; background: var(--blue); border-radius: 2px 2px 0 0; }
+  .au-hours div.warn i { background: var(--orange); } .au-hours div.bad i { background: var(--red); }
+  .au-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--ter); margin-top: 3px; }
+  .au-foot { font-size: 12px; color: var(--sec); padding: 0 14px; margin: -14px 0 22px; }
+  @media (max-width: 700px) { .au-row.open .au-detail { grid-template-columns: 1fr; } .au-top .au-num { margin-left: 0; flex-basis: 100%; } .au-spark { margin-left: 0; } }
 </style>
 </head>
 <body>
@@ -53,6 +82,8 @@
       <div class="table-wrap num"><table id="users"><thead></thead><tbody></tbody></table></div>
       <div class="note2">GHL doesn't share logins, so active days are days with any outgoing activity. Talk time adds up call length. Created counts contacts that user made; assigned is who owns them now. Back up with Team activity and Messages turned on to fill this in.</div>
     </div>
+
+    <section id="apiUsage" aria-label="RGS Tools API usage"></section>
   </div>
 
 <script>
@@ -92,6 +123,7 @@
     $('chartFor').textContent = userId ? (lastRows.find((r) => r.user_id === userId) || {}).name || userId : 'Whole sub-account';
   }
   async function load() {
+    renderApiUsage();
     if (!loc) {
       $('location').style.display = 'none'; $('share').style.display = 'none'; $('locLabel').textContent = 'How every sub-account is using GHL';
       $('overview').innerHTML = `<div class="status"><span class="spin"></span>Loading…</div>`;
@@ -125,6 +157,81 @@
     render = () => table($('users'), cols, list, (id) => { selUser = selUser === id ? null : id; render(); chart(selUser); }); render(); chart(selUser);
   }
 
+  // ---------- RGS Tools API usage (today, burst peaks, per tool, 30 days) ----------
+  const TOOL_NAMES = { hub: 'RGS Tools hub', 'field-finder': 'Field Finder', 'field-builder': 'Sub-Account Manager', 'blast-tools': 'Blast Follow-Up',
+    'message-exporter': 'Conversation Exporter', 'data-vault': 'Backup & Insights', 'power-ups': 'Power-Ups' };
+  const AU_EXPLAIN = 'HighLevel gives each app its own allowance per sub-account (100 calls / 10 s, 200,000 / day). This shows RGS Tools\' allowance. Sub-accounts connected with a private integration token show everything using that token.';
+  let au = null; const auOpen = new Set();
+  const hhmm = (iso) => `${String(new Date(iso).getUTCHours()).padStart(2, '0')}:00 UTC`; // hours are UTC, like the hourly chart
+  const day = (d) => new Date(d + 'T12:00:00Z').toLocaleDateString([], { month: 'short', day: 'numeric' });
+  // Burst headroom: share of the 10-second allowance still left at the busiest moment.
+  function burstLevel(t) {
+    if (t.errors429 > 0 || t.burstMinRemaining === 0) return 'bad';
+    if (t.burstMinRemaining != null && t.burstMax && t.burstMinRemaining / t.burstMax <= 0.2) return 'warn';
+    return 'ok';
+  }
+  function burstPill(t) {
+    if (t.burstMinRemaining == null) return '<span class="pill">Burst: no reading yet</span>';
+    const lv = burstLevel(t), at = t.burstPeakHour ? ` around ${hhmm(t.burstPeakHour)}` : '';
+    const label = `Burst peak: ${N(t.burstMax - t.burstMinRemaining)} of ${N(t.burstMax)} per 10 s${at}`;
+    return `<span class="pill ${lv}" title="Lowest calls left in any 10-second window today: ${N(t.burstMinRemaining)} of ${N(t.burstMax)}">${lv === 'ok' ? '' : RGS.icon('alert')}${label}</span>`;
+  }
+  // 30 small daily bars, one hue; each bar has a full-height hover target with the exact numbers.
+  function spark(trend, limit) {
+    const W = 4, G = 2, H = 22, max = Math.max(1, ...trend.map((d) => d.used));
+    const bars = trend.map((d, i) => {
+      const h = d.used ? Math.max(2, Math.round((H * d.used) / max)) : 0, x = i * (W + G);
+      const tip = `${day(d.day)}: ${N(d.used)} of ${N(limit)} (${Math.round((d.used / limit) * 100)}%)`;
+      return `${h ? `<rect class="${i === trend.length - 1 ? 'today' : 'past'}" x="${x}" y="${H - h}" width="${W}" height="${h}" rx="1.5"></rect>` : ''}<rect class="hit" x="${x - 1}" y="0" width="${W + G}" height="${H}"><title>${esc(tip)}</title></rect>`;
+    }).join('');
+    return `<svg width="${trend.length * (W + G) - G}" height="${H}" role="img" aria-label="Calls per day, last ${trend.length} days">${bars}</svg>`;
+  }
+  function auRow(l) {
+    const t = l.today, pct = Math.min(100, t.pct), lv = t.pct >= 100 ? 'bad' : t.pct >= au.warnAtPct ? 'warn' : '';
+    const counted = t.source === 'counted';
+    const numTitle = counted ? 'No rate-limit reading from HighLevel yet today, so this is the calls RGS Tools counted itself.' : `HighLevel's own count, read ${V.when(t.observedAt)}. ${N(t.remaining)} left today.`;
+    const toolMax = Math.max(1, ...l.tools.map((x) => x.calls));
+    const tools = l.tools.length ? l.tools.map((x) => `<div class="bar"><span class="k">${esc(TOOL_NAMES[x.tool] || x.tool)}</span><span class="t"><i style="width:${(100 * x.calls) / toolMax}%"></i></span><span class="n">${N(x.calls)}${x.errors429 ? ` · ${N(x.errors429)} × 429` : ''}</span></div>`).join('') : '<div class="none">No calls counted today.</div>';
+    const hours = Array.from({ length: 24 }, (_, h) => l.hours.find((x) => new Date(x.hour).getUTCHours() === h));
+    const hourBars = hours.map((x, h) => {
+      if (!x || x.burstMinRemaining == null || !x.burstMax) return `<div title="${String(h).padStart(2, '0')}:00 UTC: no calls"></div>`;
+      const used = x.burstMax - x.burstMinRemaining, lvh = burstLevel({ errors429: x.errors429, burstMinRemaining: x.burstMinRemaining, burstMax: x.burstMax });
+      return `<div class="${lvh === 'ok' ? '' : lvh}" title="${String(h).padStart(2, '0')}:00 UTC: busiest 10 s used ${N(used)} of ${N(x.burstMax)} · ${N(x.calls)} calls${x.errors429 ? ` · ${N(x.errors429)} × 429` : ''}"><i style="height:${Math.max(4, (100 * used) / x.burstMax)}%"></i></div>`;
+    }).join('');
+    return `<div class="au-row${auOpen.has(l.locationId) ? ' open' : ''}" data-loc="${esc(l.locationId)}">
+      <div class="au-top" role="button" tabindex="0" aria-expanded="${auOpen.has(l.locationId)}"><span class="au-chev">${RGS.icon('right')}</span><b title="${esc(l.locationId)}">${esc(l.label)}</b>
+        ${t.pct >= au.warnAtPct ? `<span class="pill ${t.pct >= 100 ? 'bad' : 'warn'}">${RGS.icon('alert')}${t.pct >= 100 ? 'Daily limit reached' : `Over ${au.warnAtPct}% of daily limit`}</span>` : ''}
+        <span class="au-num" title="${esc(numTitle)}">${counted ? '≈ ' : ''}${N(t.used)} of ${N(t.limit)} today (${t.pct < 1 && t.used ? '<1' : Math.round(t.pct)}%)</span></div>
+      <div class="au-bar ${lv}" role="progressbar" aria-valuemin="0" aria-valuemax="${t.limit}" aria-valuenow="${t.used}"><i style="width:${pct}%"></i></div>
+      <div class="au-meta">${burstPill(t)}${t.errors429 ? `<span class="pill bad">${RGS.icon('alert')}${N(t.errors429)} rate-limited (429) today</span>` : '<span>No 429s today</span>'}
+        <span class="au-spark"><span>30 days</span>${spark(l.trend, t.limit)}</span></div>
+      <div class="au-detail">
+        <div><h4>Calls today by tool</h4><div class="bars">${tools}</div></div>
+        <div><h4>Busiest 10 seconds, each hour today (UTC)</h4><div class="au-hours">${hourBars}</div><div class="au-axis"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span></div></div>
+      </div></div>`;
+  }
+  function renderApiUsage() {
+    const el = $('apiUsage'); if (!el) return;
+    const head = `<div class="gh">RGS Tools API usage<span class="end">Today, ${esc(au && au.today ? day(au.today) : '')} (UTC) · busiest first</span></div>
+      <div class="note">${RGS.icon('bulb')}<span>${esc(AU_EXPLAIN)}</span></div>`;
+    if (!au) { el.innerHTML = head + '<div class="grp card"><div class="status" style="padding:14px;margin:0"><span class="spin"></span>Loading…</div></div>'; return; }
+    if (au.error) { el.innerHTML = head + `<div class="grp card"><div class="empty">${RGS.glyph('alert', '--t-orange')}<b>Couldn't load API usage</b>${esc(au.error)}</div></div>`; return; }
+    const rows = (au.locations || []).filter((l) => !loc || l.locationId === loc);
+    if (!rows.length) { el.innerHTML = head + `<div class="grp card"><div class="empty">${RGS.glyph('database', '--t-blue')}<b>No API calls recorded yet</b>Numbers appear as the tools run.</div></div>`; return; }
+    el.innerHTML = head + `<div class="grp card">${rows.map(auRow).join('')}</div>
+      <div class="au-foot">Used today comes from HighLevel's own rate-limit headers (latest reading); ≈ marks a sub-account with no reading yet today, shown as the calls RGS Tools counted. The tool split is RGS Tools' own count. Days run midnight to midnight UTC.</div>`;
+    el.querySelectorAll('.au-top').forEach((top) => {
+      const toggle = () => { const row = top.closest('.au-row'), id = row.dataset.loc; if (auOpen.has(id)) auOpen.delete(id); else auOpen.add(id); row.classList.toggle('open'); top.setAttribute('aria-expanded', row.classList.contains('open')); };
+      top.onclick = toggle; top.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
+    });
+  }
+  async function loadApiUsage() {
+    au = null; renderApiUsage();
+    const d = await api('/api/api-usage');
+    au = d && Array.isArray(d.locations) ? d : { error: (d && d.error) || 'Unexpected answer from the server.' };
+    renderApiUsage();
+  }
+
   $('share').onclick = async () => {
     const r = await api(`/api/locations/${encodeURIComponent(loc)}/report-token`, { method: 'POST' });
     if (r.error) return RGS.toast(r.error, { error: true });
@@ -150,7 +257,7 @@
     api('/api/locations').then((ls) => {
       if (Array.isArray(ls)) $('locSel').innerHTML = '<option value="">All sub-accounts</option>' + ls.map((l) => `<option value="${esc(l.location_id)}">${esc(l.name || l.location_id)}</option>`).join('');
       $('locSel').value = loc;
-      setRange(30); load();
+      setRange(30); load(); loadApiUsage();
     });
   });
 })();
