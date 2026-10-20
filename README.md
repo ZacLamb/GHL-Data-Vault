@@ -104,6 +104,19 @@ Data comes from two sources: **conversations** (message metadata — every messa
 **usage** (users, opportunities, calendar events). Run both, then use Sync new to keep them current. Logins are not
 available through the public API; "active days" is the closest proxy.
 
+### RGS Tools API usage
+
+The Usage page also shows, per connected sub-account, how much of **RGS Tools' own** GHL API allowance it used
+(HighLevel gives each app 100 calls / 10 s and 200,000 / day per sub-account): today's calls vs the daily limit with a
+bar (warning badge past 80%), the busiest 10-second window per hour and any 429s, calls per tool, and a 30-day sparkline.
+Every RGS tool reads HighLevel's rate-limit headers and reports to the hub; the page reads it back through
+`GET /api/api-usage` → hub `GET /internal/users/:id/api-usage`, which only ever returns the logged-in account's own
+connected sub-accounts. "Used today" is HighLevel's own figure (daily limit − remaining, latest reading of the UTC day);
+the per-tool split is RGS Tools' own count.
+
+The vault reports its own calls the same way (`src/ghl-usage.cjs`, a copy of the hub's `hub-client/ghl-usage.js`).
+Optional env: `API_USAGE_REPORTING=off` stops reporting; `API_USAGE_FLUSH_MS` (default `60000`) sets how often it sends.
+
 ### Agency checkup, owner reports, audit webhooks
 
 - The usage overview shows a **health** tier per sub-account (active / slowing / dormant / never) and **idle seats**

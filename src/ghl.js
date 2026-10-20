@@ -1,4 +1,10 @@
 import { q } from './db.js';
+import { createRequire } from 'node:module';
+
+// API usage per sub-account (Usage › API usage): the rate-limit headers of every GHL response,
+// aggregated in memory and sent to the hub every minute (fire-and-forget, never slows a call).
+const apiUsage = createRequire(import.meta.url)('./ghl-usage.cjs')({ tool: 'data-vault' });
+export const recordApiUsage = (locationId, res) => apiUsage.record(res, { locationId });
 
 const BASE = process.env.GHL_API_BASE || 'https://services.leadconnectorhq.com';
 const VERSION = process.env.GHL_API_VERSION || '2021-07-28';
@@ -128,6 +134,7 @@ export async function ghl(locationId, method, path, { query, body, form, raw = f
       await sleep(1000 * 2 ** attempt);
       continue;
     }
+    apiUsage.record(res, { locationId });
     if (!raw && res.ok) {
       // JSON bodies can hang too; cap the read and retry on a stall.
       let text;

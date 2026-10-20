@@ -3,7 +3,7 @@ import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Readable, Transform } from 'node:stream';
 import { q } from './db.js';
-import { getToken } from './ghl.js';
+import { getToken, recordApiUsage } from './ghl.js';
 
 export const r2 = new S3Client({
   region: 'auto',
@@ -59,6 +59,7 @@ export async function ingest(jobId, locationId, url, meta = {}) {
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           const r = await fetch(c.u, { headers, redirect: 'follow', signal: AbortSignal.timeout(5 * 60_000) });
+          if (c.auth && isApi(c.u)) recordApiUsage(locationId, r);   // authenticated GHL API download: counts toward the sub-account's allowance
           if (r.ok && r.body) { res = r; break outer; }
           await discard(r);
           lastErr = new Error(`HTTP ${r.status} from ${new URL(c.u).host}`);
