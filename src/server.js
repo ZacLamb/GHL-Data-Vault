@@ -586,6 +586,30 @@ app.get('/api/search/totals', async (req, res) => res.json(await agencyTotals(me
 app.get('/api/search/contacts', async (req, res) => res.json(await searchContacts(req.query.q || '', { locationId: req.query.loc || null, limit: Math.min(200, Number(req.query.limit) || 50), offset: Number(req.query.offset) || 0, ownerId: me(req) })));
 app.get('/api/search/files', async (req, res) => res.json(await searchFiles(req.query.q || '', { locationId: req.query.loc || null, limit: Math.min(200, Number(req.query.limit) || 50), offset: Number(req.query.offset) || 0, ownerId: me(req) })));
 app.get('/api/search/contact/:loc/:id', async (req, res) => { if (!(await own(req, res, req.params.loc))) return; res.json(await contactDetail(req.params.loc, req.params.id, me(req))); });
+// Delete a contact in GoHighLevel from Search, optionally its matches in other sub-accounts too.
+// The vault keeps its backup copy (record + documents) and marks it deleted, so it can still be found and restored.
+app.post('/api/search/contact/:loc/:id/delete', async (req, res) => {
+  const targets = [{ loc: req.params.loc, id: req.params.id }, ...(Array.isArray(req.body?.also) ? req.body.also : [])]
+    .filter((t, i, a) => t && typeof t.loc === 'string' && typeof t.id === 'string' && a.findIndex(x => x.loc === t.loc && x.id === t.id) === i)
+    .slice(0, 51);
+  const { rows: owned } = await q('SELECT location_id FROM locations WHERE owner_id=$1 AND location_id = ANY($2)', [me(req), targets.map(t => t.loc)]);
+  const mine = new Set(owned.map(r => r.location_id));
+  if (!mine.has(req.params.loc)) return res.status(404).json({ error: 'No such location in your vault' });
+  const results = [];
+  for (const t of targets) {
+    if (!mine.has(t.loc)) { results.push({ ...t, ok: false, error: 'Not in your vault' }); continue; }
+    try {
+      await ghl(t.loc, 'DELETE', `/contacts/${encodeURIComponent(t.id)}`);
+      results.push({ ...t, ok: true });
+    } catch (err) {
+      // Already gone in GHL counts as deleted.
+      if (/-> (400|404)/.test(err.message) && /not found|does not exist|no contact/i.test(err.message)) results.push({ ...t, ok: true, already: true });
+      else { results.push({ ...t, ok: false, error: err.message.replace(/^GHL DELETE \S+ -> /, '').slice(0, 300) }); continue; }
+    }
+    await q('UPDATE contacts SET ghl_deleted_at=now() WHERE location_id=$1 AND contact_id=$2', [t.loc, t.id]);
+  }
+  res.json({ results, deleted: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length });
+});
 app.get('/api/files/:id/download', async (req, res) => {
   const { rows: [f] } = await q(`SELECT f.r2_key, f.original_filename FROM files f JOIN locations l ON l.location_id=f.location_id WHERE f.id=$1 AND f.status='done' AND l.owner_id=$2`, [req.params.id, me(req)]);
   if (!f?.r2_key) return res.status(404).send('not found');

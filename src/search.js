@@ -18,7 +18,7 @@ export async function searchContacts(term, { locationId = null, limit = 50, offs
   const { rows: [{ total }] } = await q(`SELECT count(*) AS total FROM contacts c WHERE ${where}`, params);
   const { rows } = await q(`
     SELECT c.location_id, l.name AS location_name, c.contact_id, c.first_name, c.last_name, c.email, c.phone, c.company, c.city, c.state,
-           c.tags, c.date_added, c.assigned_to, u.name AS assigned_name,
+           c.tags, c.date_added, c.assigned_to, u.name AS assigned_name, c.ghl_deleted_at,
            (SELECT count(*) FROM files f WHERE f.location_id=c.location_id AND f.contact_id=c.contact_id AND f.status='done') AS docs,
            (SELECT count(*) FROM opportunities o WHERE o.location_id=c.location_id AND o.contact_id=c.contact_id) AS opps,
            (SELECT max(date_added) FROM messages m WHERE m.location_id=c.location_id AND m.contact_id=c.contact_id) AS last_message
