@@ -80,7 +80,7 @@
       const k = c.location_id + '|' + c.contact_id;
       const sub = [c.company, c.email, c.phone, [c.city, c.state].filter(Boolean).join(', ')].filter(Boolean).map(esc).join(' · ');
       return `<div class="li click${k === selKey ? ' sel' : ''}" data-loc="${esc(c.location_id)}" data-id="${esc(c.contact_id)}">${RGS.avatarHtml(name(c) || c.company || '?', 'round')}<div class="main"><b>${esc(name(c) || c.company || '—')}</b><span class="sub">${sub || '&nbsp;'}</span></div>
-        <span class="end"><span class="val hide-md" title="Documents · opportunities">${N(c.docs)} doc${c.docs === 1 ? '' : 's'}${c.opps ? ` · ${N(c.opps)} opp${c.opps === 1 ? '' : 's'}` : ''}</span><span class="pill loc">${esc(c.location_name || c.location_id)}</span><span class="chev">${I('right')}</span></span></div>`;
+        <span class="end"><span class="val hide-md" title="Documents · opportunities">${N(c.docs)} doc${c.docs === 1 ? '' : 's'}${c.opps ? ` · ${N(c.opps)} opp${c.opps === 1 ? '' : 's'}` : ''}</span>${c.ghl_deleted_at ? '<span class="pill bad" title="Deleted in GoHighLevel. The vault still has the backup.">Deleted in GHL</span>' : ''}<span class="pill loc">${esc(c.location_name || c.location_id)}</span><span class="chev">${I('right')}</span></span></div>`;
     }).join('')}</div>`;
     else el.innerHTML = `<div class="grp card">${r.rows.map((f) => {
       const who = name(f) || f.company || f.contact_id;
@@ -104,8 +104,8 @@
     const kv = (rows) => `<div class="grp card kv">${rows.map(([k, v]) => `<div class="li flush"><div class="main"><span class="lbl">${esc(k)}</span><span class="val">${esc(v || '—')}</span></div></div>`).join('')}</div>`;
     const full = name(c) || c.company || id;
     $('insp').innerHTML = `<div class="close"><span></span><button class="btn plain" id="inspClose">Done</button></div>
-      <div class="insp-hero">${RGS.avatarHtml(full, 'xl')}<h2>${esc(full)}</h2><p>${esc(c.location_name || loc)}</p>
-        <div class="qa"><a href="${V.ghlContactUrl(loc, id)}" target="_blank" rel="noopener">${I('external')}Open GHL</a><button data-copy="${esc(id)}" data-what="Contact ID">${I('hash')}Copy ID</button>${c.email ? `<button data-copy="${esc(c.email)}" data-what="Email">${I('mail')}Copy email</button>` : ''}</div></div>
+      <div class="insp-hero">${RGS.avatarHtml(full, 'xl')}<h2>${esc(full)}</h2><p>${esc(c.location_name || loc)}</p>${c.ghl_deleted_at ? `<p><span class="pill bad">Deleted in GHL ${D(c.ghl_deleted_at)}</span></p>` : ''}
+        <div class="qa"><a href="${V.ghlContactUrl(loc, id)}" target="_blank" rel="noopener">${I('external')}Open GHL</a><button data-copy="${esc(id)}" data-what="Contact ID">${I('hash')}Copy ID</button>${c.email ? `<button data-copy="${esc(c.email)}" data-what="Email">${I('mail')}Copy email</button>` : ''}${c.ghl_deleted_at ? '' : `<button id="delGhl" style="color:var(--red)">${I('trash')}Delete in GHL</button>`}</div></div>
       <div class="gh">Record</div>${kv([['Company', c.company], ['Email', c.email], ['Phone', c.phone], ['Address', [c.address, c.city, c.state, c.postal_code].filter(Boolean).join(', ')], ['Tags', (c.tags || []).join(', ')], ['Assigned to', c.assigned_name || c.assigned_to], ['Source', c.source], ['Added', D(c.date_added)], ['Updated', D(c.date_updated)]])}
       ${custom.length ? `<div class="gh">Custom fields</div>${kv(custom.map(([k, v]) => [k, Array.isArray(v) ? v.join(', ') : String(v)]))}` : ''}
       <div class="gh">Documents<span class="end">${N(d.files.length)}</span></div>
@@ -117,6 +117,36 @@
       <div class="gh">Also in</div>
       <div class="grp card">${d.alsoIn.map((a) => `<div class="li click" data-also="${esc(a.location_id)}" data-id="${esc(a.contact_id)}">${RGS.avatarHtml(a.location_name || a.location_id, 'sm')}<div class="main"><b>${esc(a.location_name || a.location_id)}</b><span class="sub">${esc(name(a) || a.company || '')}</span></div><span class="end"><span class="chev">${I('right')}</span></span></div>`).join('') || '<div class="li flush sec">No other sub-account has this email or phone</div>'}</div>`;
     $('insp').scrollTop = 0;
+    const del = $('delGhl'); if (del) del.onclick = () => deleteInGhl(loc, id, full, c.location_name || loc, d.alsoIn);
+  }
+
+  // Delete the contact in GoHighLevel (and, if ticked, the same person in other sub-accounts).
+  // GHL can't undo this; the vault keeps its backup copy and marks it deleted.
+  function deleteInGhl(loc, id, full, locName, alsoIn) {
+    const box = V.openSheet(`${V.head('trash', '--t-pink', 'Delete in GoHighLevel?', esc(full))}
+      <div class="sheet-bd"><p class="sec" style="margin-bottom:12px">This deletes the contact in GoHighLevel, along with its conversations, notes and tasks there. GoHighLevel can't undo it. The vault keeps its backup copy and documents.</p>
+        <div class="grp"><div class="fr"><div class="lbl"><b style="font-weight:550">${esc(locName)}</b><div class="sec" style="font-size:12px">This contact</div></div><div class="ctl"><label class="sw"><input type="checkbox" checked disabled><i></i></label></div></div>
+        ${alsoIn.map((a, i) => `<div class="fr"><div class="lbl"><b style="font-weight:550">${esc(a.location_name || a.location_id)}</b><div class="sec" style="font-size:12px">Same email or phone · ${esc(name(a) || a.company || a.contact_id)}</div></div><div class="ctl"><label class="sw"><input type="checkbox" data-also-i="${i}"><i></i></label></div></div>`).join('')}</div>
+        ${alsoIn.length ? `<p class="sec" style="font-size:12px;margin-top:8px">Turn on the other sub-accounts to delete this person there too.</p>` : ''}
+        <div class="status" id="delSt" style="display:none"></div></div>
+      <div class="sheet-ft"><button class="btn tinted" data-close>Cancel</button><button class="btn danger" id="delGo">Delete</button></div>`);
+    const go = box.querySelector('#delGo');
+    const count = () => 1 + box.querySelectorAll('[data-also-i]:checked').length;
+    const label = () => { const n = count(); go.textContent = n === 1 ? 'Delete' : `Delete in ${n} sub-accounts`; };
+    box.querySelectorAll('[data-also-i]').forEach((x) => x.onchange = label);
+    go.onclick = async () => {
+      const also = [...box.querySelectorAll('[data-also-i]:checked')].map((x) => ({ loc: alsoIn[x.dataset.alsoI].location_id, id: alsoIn[x.dataset.alsoI].contact_id }));
+      go.disabled = true; const st = box.querySelector('#delSt'); st.style.display = ''; st.innerHTML = '<span class="spin"></span>Deleting…';
+      const r = await api(`/api/search/contact/${encodeURIComponent(loc)}/${encodeURIComponent(id)}/delete`, { method: 'POST', body: { also } });
+      if (r.error) { st.textContent = r.error; go.disabled = false; return; }
+      const bad = r.results.filter((x) => !x.ok);
+      if (bad.length) { st.innerHTML = `Deleted ${N(r.deleted)}. Couldn't delete ${N(bad.length)}: ${bad.map((x) => esc(x.error)).join('; ')}`; go.disabled = true; }
+      else V.closeSheet();
+      if (r.deleted) RGS.toast(r.deleted === 1 ? 'Deleted in GoHighLevel' : `Deleted in ${N(r.deleted)} sub-accounts`);
+      const done = new Set(r.results.filter((x) => x.ok).map((x) => x.loc + '|' + x.id));
+      (last.contacts?.rows || []).forEach((row) => { if (done.has(row.location_id + '|' + row.contact_id)) row.ghl_deleted_at = new Date().toISOString(); });
+      render(); openContact(loc, id);
+    };
   }
   function closeInsp() { selKey = null; $('split').classList.remove('has-insp'); document.querySelectorAll('#results .li.sel').forEach((x) => x.classList.remove('sel')); }
 

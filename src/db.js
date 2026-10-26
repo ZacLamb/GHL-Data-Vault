@@ -189,6 +189,7 @@ export async function migrate() {
     ALTER TABLE files ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMPTZ;   -- Last-Modified from GHL storage ≈ upload time
     CREATE INDEX IF NOT EXISTS files_loc_uploaded ON files(location_id, uploaded_at);
     ALTER TABLE contacts ADD COLUMN IF NOT EXISTS date_updated TIMESTAMPTZ;
+    ALTER TABLE contacts ADD COLUMN IF NOT EXISTS ghl_deleted_at TIMESTAMPTZ;   -- deleted in GHL from Search; the vault keeps the backup copy
     -- packages may be "locked" (rep split: a contact can only be in one) or unlocked (ad-hoc filtered exports)
     ALTER TABLE packages ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT true;
     ALTER TABLE package_contacts ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT true;
