@@ -227,6 +227,7 @@ export async function migrate() {
     ALTER TABLE contacts ADD COLUMN IF NOT EXISTS assigned_to TEXT;
     ALTER TABLE contacts ADD COLUMN IF NOT EXISTS created_by_user TEXT;
     ALTER TABLE contacts ADD COLUMN IF NOT EXISTS source TEXT;
+    ALTER TABLE locations ADD COLUMN IF NOT EXISTS ghl_deleted_at TIMESTAMPTZ;   -- sub-account deleted in GHL from Usage; the backup is kept
   `);
   // One-time cleanup: recordings that 422'd are calls with no recording, not failures.
   await q(`UPDATE files SET status='skipped', error='no recording' WHERE source='recording' AND status='failed' AND error LIKE 'HTTP 422%'`);

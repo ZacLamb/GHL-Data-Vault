@@ -18,6 +18,7 @@ import { queueBundles } from './bundler.js';
 import { searchContacts, searchFiles, contactDetail, agencyTotals } from './search.js';
 import { summary, breakdowns, search, searchAll } from './analytics.js';
 import { locationUsage, userUsage, dailySeries, agencyOverview } from './usage.js';
+import { agencyStatus, saveAgencyToken, removeAgencyToken, deleteSubAccount } from './agency.js';
 import crypto from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -551,6 +552,17 @@ app.get('/api/locations/:id/failures', ownLoc, async (req, res) => {
 });
 
 // --- usage analytics ---------------------------------------------------------------------
+// --- deleting sub-accounts in GHL (Usage) ---------------------------------------------------
+app.get('/api/agency-token', async (req, res) => res.json(await agencyStatus(me(req))));
+app.post('/api/agency-token', async (req, res) => {
+  try { res.json(await saveAgencyToken(me(req), req.body?.token)); } catch (err) { res.status(400).json({ error: err.message }); }
+});
+app.delete('/api/agency-token', async (req, res) => { await removeAgencyToken(me(req)); res.json({ ok: true }); });
+app.post('/api/locations/:id/delete-in-ghl', ownLoc, async (req, res) => {
+  try { res.json(await deleteSubAccount(me(req), req.params.id, { confirm: req.body?.confirm, deleteTwilio: !!req.body?.deleteTwilio })); }
+  catch (err) { console.error('delete sub-account', req.params.id, err.message); res.status(err.status || 500).json({ error: err.message }); }
+});
+
 app.get('/api/usage/overview', async (req, res) => res.json(await agencyOverview(req.query.from, req.query.to, me(req))));
 app.get('/api/locations/:id/usage', ownLoc, async (req, res) => res.json(await locationUsage(req.params.id, req.query.from, req.query.to)));
 app.get('/api/locations/:id/usage/users', ownLoc, async (req, res) => res.json(await userUsage(req.params.id, req.query.from, req.query.to)));

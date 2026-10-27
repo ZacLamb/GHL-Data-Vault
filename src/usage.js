@@ -101,7 +101,7 @@ export function userStatus(u) {
 export async function agencyOverview(from, to, ownerId) {
   const [a, b] = range(from, to);
   const { rows } = await q(`
-    SELECT l.location_id, l.name, l.report_token,
+    SELECT l.location_id, l.name, l.report_token, l.ghl_deleted_at,
            (SELECT count(*) FROM messages m WHERE m.location_id=l.location_id AND m.direction='outbound' AND m.date_added >= now() - interval '30 days') AS out_30,
            (SELECT count(*) FROM messages m WHERE m.location_id=l.location_id AND m.direction='outbound' AND m.date_added >= now() - interval '60 days' AND m.date_added < now() - interval '30 days') AS out_prev30,
            (SELECT count(*) FROM users u WHERE u.location_id=l.location_id AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.location_id=l.location_id AND m.user_id=u.user_id AND m.date_added >= now() - interval '30 days')) AS idle_seats,
@@ -116,8 +116,8 @@ export async function agencyOverview(from, to, ownerId) {
            (SELECT count(*) FROM opportunities o WHERE o.location_id=l.location_id AND o.status='won' AND o.status_changed_at >= $1 AND o.status_changed_at < $2) AS won,
            (SELECT max(date_added) FROM messages m WHERE m.location_id=l.location_id AND m.direction='outbound') AS last_activity,
            (SELECT max(finished_at) FROM jobs j WHERE j.location_id=l.location_id AND j.status='done') AS last_export
-    FROM locations l WHERE l.owner_id=$3 ORDER BY outbound DESC, l.name`, [a, b, ownerId]);
-  return rows.map(num).map(r => ({ ...r, health: healthTier(r.out_30, r.out_prev30, !!r.last_activity) }));
+    FROM locations l WHERE l.owner_id=$3 ORDER BY (l.ghl_deleted_at IS NOT NULL), outbound DESC, l.name`, [a, b, ownerId]);
+  return rows.map(num).map(r => ({ ...r, health: r.ghl_deleted_at ? 'deleted' : healthTier(r.out_30, r.out_prev30, !!r.last_activity) }));
 }
 
 // Per-user counts from the webhook audit stream (notes, tasks, contact edits, stage moves, ...).
