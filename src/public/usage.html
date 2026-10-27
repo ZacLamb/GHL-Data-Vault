@@ -21,6 +21,11 @@
   .tile .v { font-size: 22px; }
   .chartbox { margin-bottom: 22px; }
   .table-wrap td b { font-weight: 550; }
+  .delbtn { border: 0; background: transparent; color: var(--ter); cursor: pointer; padding: 4px; border-radius: 6px; display: inline-flex; }
+  .delbtn:hover { color: var(--red); background: var(--hover); }
+  tr.gone td { opacity: .55; }
+  .dl-list { max-height: 46vh; overflow-y: auto; }
+  .dl-list label.fr { cursor: pointer; }
   .note2 { font-size: 12px; color: var(--sec); padding: 0 14px; margin: -14px 0 22px; }
   /* RGS Tools API usage (per sub-account, today + 30 days) */
   .au-row { padding: 12px 14px; border-top: .5px solid var(--sep); }
@@ -61,7 +66,7 @@
   </div>
   <div class="wrap">
     <div class="page-head"><div><h1>Usage</h1><p id="locLabel">How every sub-account is using GHL</p></div>
-      <div class="actions"><button class="btn tinted" id="share" style="display:none" title="A read-only page the sub-account owner can open without logging in"></button></div></div>
+      <div class="actions"><button class="btn tinted danger" id="delSubs" style="display:none">Delete sub-accounts</button><button class="btn tinted" id="share" style="display:none" title="A read-only page the sub-account owner can open without logging in"></button></div></div>
     <div class="controls">
       <div><label for="locSel">Sub-account</label><select id="locSel"><option value="">All sub-accounts</option></select></div>
       <div><label for="from">From</label><input id="from" type="date"></div>
@@ -92,6 +97,7 @@
   const { esc, api, N, D, mins } = V;
   const iso = (d) => d.toISOString().slice(0, 10);
   let loc = new URLSearchParams(location.search).get('loc') || '';
+  let ovRows = [];
   let lastRows = [], lastCols = [], sortKey = null, sortDir = -1, selUser = null, render = () => {};
 
   function setRange(days) { const t = new Date(); $('from').value = iso(new Date(t.getTime() - days * 86400000)); $('to').value = iso(t); }
@@ -111,7 +117,7 @@
     th.innerHTML = '<tr>' + cols.map((c) => `<th class="sortable" data-k="${c.k}">${c.l}${sortKey === c.k ? (sortDir < 0 ? ' ↓' : ' ↑') : ''}</th>`).join('') + '</tr>';
     th.querySelectorAll('th').forEach((h) => h.onclick = () => { const k = h.dataset.k; sortDir = sortKey === k ? -sortDir : -1; sortKey = k; render(); });
     const sorted = sortKey ? [...rows].sort((a, b) => { const x = a[sortKey], y = b[sortKey]; return (x == null ? -1 : y == null ? 1 : typeof x === 'number' ? x - y : String(x).localeCompare(String(y))) * sortDir; }) : rows;
-    tb.innerHTML = sorted.map((r) => `<tr data-id="${esc(r.user_id || r.location_id || '')}" class="${onRow ? 'click' : ''} ${r.user_id && r.user_id === selUser ? 'sel' : ''}">${cols.map((c) => `<td>${c.f ? c.f(r) : N(r[c.k])}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${cols.length}" class="sec" style="text-align:left">No activity yet. Back up this sub-account with Team activity and Messages turned on.</td></tr>`;
+    tb.innerHTML = sorted.map((r) => `<tr data-id="${esc(r.user_id || r.location_id || '')}" class="${onRow ? 'click' : ''} ${r.user_id && r.user_id === selUser ? 'sel' : ''} ${r.ghl_deleted_at ? 'gone' : ''}">${cols.map((c) => `<td>${c.f ? c.f(r) : N(r[c.k])}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${cols.length}" class="sec" style="text-align:left">No activity yet. Back up this sub-account with Team activity and Messages turned on.</td></tr>`;
     if (onRow) tb.querySelectorAll('tr[data-id]').forEach((tr) => tr.onclick = () => onRow(tr.dataset.id));
     lastRows = sorted; lastCols = cols;
   }
@@ -125,21 +131,22 @@
   async function load() {
     renderApiUsage();
     if (!loc) {
-      $('location').style.display = 'none'; $('share').style.display = 'none'; $('locLabel').textContent = 'How every sub-account is using GHL';
+      $('location').style.display = 'none'; $('share').style.display = 'none'; $('delSubs').style.display = ''; $('locLabel').textContent = 'How every sub-account is using GHL';
       $('overview').innerHTML = `<div class="status"><span class="spin"></span>Loading…</div>`;
       const rows = await api(`/api/usage/overview?${qs()}`);
       if (!Array.isArray(rows)) { $('overview').innerHTML = `<div class="empty">${RGS.glyph('alert', '--t-orange')}<b>Couldn't load usage</b>${esc(rows.error || '')}</div>`; return; }
+      ovRows = rows;
       const cnt = (t) => rows.filter((r) => r.health === t).length;
       const tile = (k, v, c) => `<div class="tile"><div class="k">${c ? `<span class="dot" style="background:${c}"></span>` : ''}${k}</div><div class="v">${v}</div></div>`;
-      $('overview').innerHTML = `<div class="tiles">${tile('Sub-accounts', N(rows.length))}${tile('Active', N(cnt('active')), 'var(--green)')}${tile('Slowing down', N(cnt('slowing')), 'var(--orange)')}${tile('Quiet', N(cnt('dormant')), 'var(--red)')}${tile('Never used', N(cnt('never')), 'var(--ter)')}${tile('Seats with no activity', N(rows.reduce((a, r) => a + r.idle_seats, 0)))}</div>
+      $('overview').innerHTML = `<div class="tiles">${tile('Sub-accounts', N(rows.length))}${tile('Active', N(cnt('active')), 'var(--green)')}${tile('Slowing down', N(cnt('slowing')), 'var(--orange)')}${tile('Quiet', N(cnt('dormant')), 'var(--red)')}${tile('Never used', N(cnt('never')), 'var(--ter)')}${tile('Seats with no activity', N(rows.reduce((a, r) => a + r.idle_seats, 0)))}${cnt('deleted') ? tile('Deleted in GHL', N(cnt('deleted'))) : ''}</div>
         <div class="gh">Agency checkup<span class="end">Tap a sub-account to see its team</span></div>
         <div class="table-wrap num"><table id="ov"><thead></thead><tbody></tbody></table></div>
         <div class="note2">Active: sent something in the last 30 days. Slowing down: the last 30 days were under half of the 30 before. Quiet: nothing in 30 days. Never used: no activity on record. Seats with no activity: users who sent nothing in 30 days.</div>`;
-      const cols = [{ k: 'name', l: 'Sub-account', f: (r) => `<b>${esc(r.name || 'Unnamed')}</b><span class="sub mono">${esc(r.location_id)}</span>` }, { k: 'health', l: 'Health', f: (r) => pill(r.health, { active: 'ok', slowing: 'warn', dormant: 'bad' }) }, { k: 'users', l: 'Users' }, { k: 'active_users', l: 'Active' }, { k: 'idle_seats', l: 'Idle seats' }, { k: 'contacts', l: 'Contacts' }, { k: 'contacts_new', l: 'New' },
-        { k: 'outbound', l: 'Out' }, { k: 'inbound', l: 'In' }, { k: 'calls', l: 'Calls' }, { k: 'talk_seconds', l: 'Talk', f: (r) => mins(r.talk_seconds) }, { k: 'won', l: 'Won' }, { k: 'last_activity', l: 'Last activity', f: (r) => D(r.last_activity) }, { k: 'last_export', l: 'Last backup', f: (r) => D(r.last_export) }];
+      const cols = [{ k: 'name', l: 'Sub-account', f: (r) => `<b>${esc(r.name || 'Unnamed')}</b><span class="sub mono">${esc(r.location_id)}</span>` }, { k: 'health', l: 'Health', f: (r) => r.ghl_deleted_at ? `<span class="pill bad" title="Deleted in GoHighLevel ${esc(D(r.ghl_deleted_at))}. The backup is kept.">deleted</span>` : pill(r.health, { active: 'ok', slowing: 'warn', dormant: 'bad' }) }, { k: 'users', l: 'Users' }, { k: 'active_users', l: 'Active' }, { k: 'idle_seats', l: 'Idle seats' }, { k: 'contacts', l: 'Contacts' }, { k: 'contacts_new', l: 'New' },
+        { k: 'outbound', l: 'Out' }, { k: 'inbound', l: 'In' }, { k: 'calls', l: 'Calls' }, { k: 'talk_seconds', l: 'Talk', f: (r) => mins(r.talk_seconds) }, { k: 'won', l: 'Won' }, { k: 'last_activity', l: 'Last activity', f: (r) => D(r.last_activity) }, { k: 'last_export', l: 'Last backup', f: (r) => D(r.last_export) }, { k: '_del', l: '', f: (r) => r.ghl_deleted_at ? '' : `<button class="delbtn" data-del="${esc(r.location_id)}" title="Delete this sub-account in GoHighLevel" aria-label="Delete sub-account">${RGS.icon('trash')}</button>` }];
       render = () => table($('ov'), cols, rows, (id) => { loc = id; $('locSel').value = id; sortKey = null; history.replaceState(null, '', `?loc=${encodeURIComponent(id)}`); load(); }); render(); return;
     }
-    $('overview').innerHTML = ''; $('location').style.display = ''; $('locLabel').textContent = $('locSel').selectedOptions[0]?.value === loc ? $('locSel').selectedOptions[0].textContent : loc;
+    $('overview').innerHTML = ''; $('delSubs').style.display = 'none'; $('location').style.display = ''; $('locLabel').textContent = $('locSel').selectedOptions[0]?.value === loc ? $('locSel').selectedOptions[0].textContent : loc;
     $('kpis').innerHTML = Array.from({ length: 12 }, () => '<div class="tile"><div class="skel" style="width:60%;margin:4px 0 12px"></div><div class="skel" style="width:40%;height:18px"></div></div>').join('');
     const [s, users] = await Promise.all([api(`/api/locations/${encodeURIComponent(loc)}/usage?${qs()}`), api(`/api/locations/${encodeURIComponent(loc)}/usage/users?${qs()}`)]);
     if (s.error || !s.messages) { $('location').style.display = 'none'; $('overview').innerHTML = `<div class="empty">${RGS.glyph('alert', '--t-orange')}<b>Couldn't load usage</b>${esc(s.error || '')}</div>`; return; }
@@ -155,6 +162,130 @@
     if (!sortKey) sortKey = 'total_out';
     const list = Array.isArray(users) ? users : [];
     render = () => table($('users'), cols, list, (id) => { selUser = selUser === id ? null : id; render(); chart(selUser); }); render(); chart(selUser);
+  }
+
+
+  // ---------- delete sub-accounts in GoHighLevel ----------
+  // Needs an agency-level Private Integration token (View + Edit Locations), stored encrypted on our side.
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-del]'); if (!b) return;
+    e.stopPropagation(); e.preventDefault();
+    const r = ovRows.find((x) => x.location_id === b.dataset.del); if (r) startDelete([r]);
+  }, true);
+  $('delSubs').onclick = () => startDelete(null);
+
+  async function startDelete(rows) {
+    const st = await api('/api/agency-token');
+    if (st.error) return RGS.toast(st.error, { error: true });
+    if (!st.connected) return agencySetup(() => startDelete(rows));
+    if (rows && rows.length === 1) return confirmOne(rows[0], st);
+    pickMany(st);
+  }
+
+  function agencySetup(next) {
+    const box = V.openSheet(`${V.head('shield', '--t-slate', 'Connect your agency to delete sub-accounts', 'One time. Only HighLevel agency tokens can delete a sub-account.')}
+      <div class="sheet-bd">
+        <ol class="sec" style="padding-left:18px;margin:0 0 12px;line-height:1.6">
+          <li>In HighLevel, switch to your <b>agency view</b> and open <b>Settings › Private Integrations</b>.</li>
+          <li>Click <b>Create new integration</b>, name it <b>RGS Tools – delete sub-accounts</b>.</li>
+          <li>Tick <b>View Locations</b> (locations.readonly) and <b>Edit Locations</b> (locations.write). Nothing else is needed.</li>
+          <li>Create it, copy the token and paste it here.</li>
+        </ol>
+        <div class="grp pad"><input id="agTok" type="password" placeholder="pit-…" autocomplete="off" spellcheck="false" style="width:100%"></div>
+        <p class="sec" style="font-size:12px;margin-top:8px">The token is stored encrypted and only used when you delete a sub-account from this page. Remove it any time from the delete window, or delete the integration in HighLevel.</p>
+        <div class="status" id="agSt" style="display:none"></div></div>
+      <div class="sheet-ft"><button class="btn tinted" data-close>Cancel</button><button class="btn" id="agSave">Save token</button></div>`);
+    const save = box.querySelector('#agSave'); const s = box.querySelector('#agSt');
+    setTimeout(() => box.querySelector('#agTok').focus(), 0);
+    save.onclick = async () => {
+      save.disabled = true; s.style.display = ''; s.className = 'status'; s.innerHTML = '<span class="spin"></span>Checking with HighLevel…';
+      const r = await api('/api/agency-token', { method: 'POST', body: { token: box.querySelector('#agTok').value } });
+      if (r.error) { s.className = 'status err'; s.textContent = r.error; save.disabled = false; return; }
+      V.closeSheet(); RGS.toast(`Agency connected${r.companyName ? ': ' + r.companyName : ''}`); next();
+    };
+  }
+
+  const agencyLine = (st) => `<p class="sec" style="font-size:12px;margin-top:10px">Using the agency token ending ${esc(st.last4 || '')}${st.companyName ? ` for ${esc(st.companyName)}` : ''}. <a href="#" id="agRemove">Remove token</a></p>`;
+  function wireRemove(box) {
+    const a = box.querySelector('#agRemove'); if (!a) return;
+    a.onclick = async (e) => { e.preventDefault(); if (!(await V.ask({ title: 'Remove the agency token?', body: 'You can add it again any time. Delete the integration in HighLevel too if you no longer need it.', ok: 'Remove', danger: true }))) return; await api('/api/agency-token', { method: 'DELETE' }); RGS.toast('Agency token removed'); };
+  }
+  const twilioRow = `<div class="grp" style="margin-top:12px"><div class="fr"><div class="lbl"><b style="font-weight:550">Also release phone numbers</b><div class="sec" style="font-size:12px">Deletes the sub-account's phone system (Twilio / LC Phone) and its numbers too. Leave off to keep them in the phone provider.</div></div><div class="ctl"><label class="sw"><input type="checkbox" id="dlTw"><i></i></label></div></div></div>`;
+
+  function confirmOne(r, st) {
+    const name = r.name || r.location_id;
+    const box = V.openSheet(`${V.head('trash', '--t-pink', 'Delete this sub-account in GoHighLevel?', esc(name))}
+      <div class="sheet-bd">
+        <p class="sec" style="margin-bottom:12px">This permanently deletes <b>${esc(name)}</b> in GoHighLevel: its contacts, conversations, opportunities, workflows, funnels and sites. GoHighLevel can't undo it.</p>
+        <div class="grp"><div class="fr"><div class="lbl">Last backup</div><div class="ctl">${r.last_export ? esc(D(r.last_export)) : '<span style="color:var(--red)">Never backed up</span>'}</div></div>
+          <div class="fr"><div class="lbl">Contacts in the backup</div><div class="ctl">${N(r.contacts)}</div></div>
+          <div class="fr"><div class="lbl">Last activity</div><div class="ctl">${r.last_activity ? esc(D(r.last_activity)) : 'None on record'}</div></div></div>
+        <p class="sec" style="font-size:12px;margin-top:8px">The backup stays in Backup &amp; Insights after the delete. <a href="#" id="dlBackup">Back up now first</a></p>
+        ${twilioRow}
+        <p style="margin:14px 0 6px;font-size:13px">Type <b>${esc(name)}</b> to confirm</p>
+        <div class="grp pad"><input id="dlName" type="text" autocomplete="off" spellcheck="false" style="width:100%"></div>
+        ${agencyLine(st)}
+        <div class="status" id="dlSt" style="display:none"></div></div>
+      <div class="sheet-ft"><button class="btn tinted" data-close>Cancel</button><button class="btn danger" id="dlGo" disabled>Delete sub-account</button></div>`);
+    wireRemove(box);
+    const go = box.querySelector('#dlGo'); const inp = box.querySelector('#dlName'); const s = box.querySelector('#dlSt');
+    const norm = (x) => String(x || '').trim().replace(/\s+/g, ' ').toLowerCase();
+    inp.oninput = () => { go.disabled = norm(inp.value) !== norm(name); };
+    setTimeout(() => inp.focus(), 0);
+    box.querySelector('#dlBackup').onclick = async (e) => {
+      e.preventDefault();
+      const j = await api('/api/jobs', { method: 'POST', body: { locationId: r.location_id } });
+      if (j.error) return RGS.toast(j.error, { error: true });
+      V.closeSheet(); RGS.toast('Backup started. Delete it once the backup finishes on the Backups page.');
+    };
+    go.onclick = async () => {
+      go.disabled = true; s.style.display = ''; s.className = 'status'; s.innerHTML = '<span class="spin"></span>Deleting in GoHighLevel…';
+      const res = await api(`/api/locations/${encodeURIComponent(r.location_id)}/delete-in-ghl`, { method: 'POST', body: { confirm: inp.value, deleteTwilio: box.querySelector('#dlTw').checked } });
+      if (res.error) { s.className = 'status err'; s.textContent = res.error; go.disabled = false; return; }
+      V.closeSheet(); RGS.toast(`${res.name || name} deleted in GoHighLevel`); load();
+    };
+  }
+
+  function pickMany(st) {
+    const list = ovRows.filter((r) => !r.ghl_deleted_at);
+    const picked = new Set();
+    const box = V.openSheet(`${V.head('trash', '--t-pink', 'Delete sub-accounts in GoHighLevel', 'Pick the ones to delete. Each is deleted permanently in GoHighLevel; backups are kept here.')}
+      <div class="sheet-bd">
+        <div class="chips" style="margin-bottom:10px"><button class="chip" data-pick="dormant">Quiet</button><button class="chip" data-pick="never">Never used</button><button class="chip" data-pick="none">Clear</button></div>
+        <div class="grp dl-list">${list.map((r) => `<label class="fr"><div class="lbl"><b style="font-weight:550;font-size:13.5px">${esc(r.name || r.location_id)}</b><div class="sec" style="font-size:12px;font-weight:400">${esc(r.health)} · last activity ${r.last_activity ? esc(D(r.last_activity)) : 'none'} · ${r.last_export ? 'backed up ' + esc(D(r.last_export)) : 'never backed up'}</div></div><div class="ctl"><input type="checkbox" data-pl="${esc(r.location_id)}"></div></label>`).join('') || '<div class="fr sec">Nothing to delete.</div>'}</div>
+        ${twilioRow}
+        <p style="margin:14px 0 6px;font-size:13px" id="dlTypeLbl">Pick at least one sub-account</p>
+        <div class="grp pad"><input id="dlType" type="text" autocomplete="off" spellcheck="false" style="width:100%" disabled></div>
+        ${agencyLine(st)}
+        <div class="status" id="dlSt" style="display:none"></div><div id="dlRes"></div></div>
+      <div class="sheet-ft"><button class="btn tinted" data-close>Close</button><button class="btn danger" id="dlGo" disabled>Delete</button></div>`, { wide: true });
+    wireRemove(box);
+    const go = box.querySelector('#dlGo'), inp = box.querySelector('#dlType'), lbl = box.querySelector('#dlTypeLbl'), s = box.querySelector('#dlSt');
+    const word = () => `DELETE ${picked.size}`;
+    const sync = () => {
+      box.querySelectorAll('[data-pl]').forEach((c) => { c.checked = picked.has(c.dataset.pl); });
+      inp.disabled = !picked.size;
+      lbl.innerHTML = picked.size ? `Type <b>${word()}</b> to confirm` : 'Pick at least one sub-account';
+      go.textContent = picked.size ? `Delete ${picked.size} sub-account${picked.size === 1 ? '' : 's'}` : 'Delete';
+      go.disabled = !picked.size || inp.value.trim().toUpperCase() !== word();
+    };
+    box.querySelectorAll('[data-pl]').forEach((c) => c.onchange = () => { c.checked ? picked.add(c.dataset.pl) : picked.delete(c.dataset.pl); sync(); });
+    box.querySelectorAll('[data-pick]').forEach((b) => b.onclick = () => { if (b.dataset.pick === 'none') picked.clear(); else list.filter((r) => r.health === b.dataset.pick).forEach((r) => picked.add(r.location_id)); sync(); });
+    inp.oninput = sync;
+    go.onclick = async () => {
+      const ids = [...picked]; const tw = box.querySelector('#dlTw').checked;
+      go.disabled = true; inp.disabled = true; let ok = 0; const bad = [];
+      for (let i = 0; i < ids.length; i++) {
+        const r = list.find((x) => x.location_id === ids[i]);
+        s.style.display = ''; s.className = 'status'; s.innerHTML = `<span class="spin"></span>Deleting ${i + 1} of ${ids.length}: ${esc(r.name || r.location_id)}`;
+        const res = await api(`/api/locations/${encodeURIComponent(r.location_id)}/delete-in-ghl`, { method: 'POST', body: { confirm: r.name || r.location_id, deleteTwilio: tw } });
+        if (res.error) bad.push({ r, error: res.error }); else { ok++; picked.delete(r.location_id); }
+      }
+      s.className = bad.length ? 'status err' : 'status'; s.textContent = `Deleted ${ok} of ${ids.length}.`;
+      box.querySelector('#dlRes').innerHTML = bad.length ? `<div class="grp" style="margin-top:8px">${bad.map((b) => `<div class="fr"><div class="lbl"><b style="font-weight:550">${esc(b.r.name || b.r.location_id)}</b><div class="sec" style="font-size:12px;white-space:normal">${esc(b.error)}</div></div></div>`).join('')}</div>` : '';
+      inp.value = ''; sync(); if (ok) { RGS.toast(`${ok} sub-account${ok === 1 ? '' : 's'} deleted in GoHighLevel`); load(); }
+    };
+    sync();
   }
 
   // ---------- RGS Tools API usage (today, burst peaks, per tool, 30 days) ----------
@@ -245,7 +376,8 @@
   };
   $('csv').onclick = () => {
     if (!lastCols.length) return;
-    const lines = [lastCols.map((c) => V.csvCell(c.l)).join(',')].concat(lastRows.map((r) => lastCols.map((c) => V.csvCell(r[c.k])).join(',')));
+    const lastCols_ = lastCols.filter((c) => c.l);
+    const lines = [lastCols_.map((c) => V.csvCell(c.l)).join(',')].concat(lastRows.map((r) => lastCols_.map((c) => V.csvCell(r[c.k])).join(',')));
     V.downloadText(`usage-${loc || 'agency'}.csv`, lines.join('\n')); RGS.toast('CSV downloaded');
   };
 
