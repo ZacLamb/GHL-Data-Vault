@@ -418,7 +418,7 @@
       const pill = { done: '<span class="pill ok">Done</span>', running: '<span class="pill blue">Copying</span>', queued: '<span class="pill">Queued</span>', parked: '<span class="pill warn">Daily limit</span>', failed: '<span class="pill bad">Failed</span>', cancelled: '<span class="pill warn">Stopped</span>' }[st] || `<span class="pill">${esc(st)}</span>`;
       const dir = p.source_location_id === loc ? `To ${esc(p.target_name || p.target_location_id)}` : `From ${esc(p.source_name || p.source_location_id)}`;
       return `<div class="li stack">${RGS.glyph('upload', '--t-cyan')}<div class="main"><b>${dir}${p.package_id ? ` · package #${p.package_id}` : ''}</b>
-        <span class="sub">${N(pr.contactsDone)} of ${N(pr.total)} contacts · ${N(pr.filesDone)} files${pr.filesFailed ? ` · <span class="w">${N(pr.filesFailed)} failed</span>` : ''}${pr.oppsDone ? ` · ${N(pr.oppsDone)} opportunities` : ''}${pr.note && st !== 'done' ? ` · ${esc(pr.note)}` : ''}${p.error ? ` · <span class="w">${esc(p.error)}</span>` : ''}</span></div><span class="end">${pill}</span>
+        <span class="sub"><span class="mono">${esc(p.source_location_id === loc ? p.target_location_id : p.source_location_id)}</span> · ${N(pr.contactsDone)} of ${N(pr.total)} contacts · ${N(pr.filesDone)} files${pr.filesFailed ? ` · <span class="w">${N(pr.filesFailed)} failed</span>` : ''}${pr.oppsDone ? ` · ${N(pr.oppsDone)} opportunities` : ''}${pr.note && st !== 'done' ? ` · ${esc(pr.note)}` : ''}${p.error ? ` · <span class="w">${esc(p.error)}</span>` : ''}</span></div><span class="end">${pill}</span>
         <div class="acts">${['queued', 'running'].includes(p.status) && st !== 'parked' ? `<button class="btn sm tinted" data-pushcancel="${p.id}">Stop</button>` : ''}${['cancelled', 'failed'].includes(p.status) || st === 'parked' ? `<button class="btn sm tinted" data-pushresume="${p.id}">${st === 'parked' ? 'Try now' : 'Resume'}</button>` : ''}${p.status !== 'running' ? `<button class="btn sm tinted danger" data-pushdel="${p.id}">Remove</button>` : ''}
         ${pr.errors?.length ? `<details style="flex-basis:100%"><summary class="sec" style="font-size:12px;cursor:pointer">${pr.errors.length} issue${pr.errors.length === 1 ? '' : 's'}</summary><div class="issues">${esc(pr.errors.slice(0, 50).join('\n'))}</div></details>` : ''}</div></div>`;
     }).join('');
@@ -550,11 +550,11 @@
   const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 40);
   function openPush(pkgId) {
     const loc = state.sel; const me = (state.locs || []).find((l) => l.location_id === loc); if (!me) return;
-    const targets = state.locs.filter((l) => l.location_id !== loc && !l.inactive).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    const targets = state.locs.filter((l) => l.location_id !== loc && !l.inactive && !l.ghl_deleted_at).sort((a, b) => (a.name || '').localeCompare(b.name || '') || a.location_id.localeCompare(b.location_id));
     const pk = ins.pkgs.filter((p) => p.status === 'done');
     const box = V.openSheet(`${V.head('upload', '--t-cyan', 'Copy to another sub-account', `From ${esc(me.name || loc)}`)}
       <div class="sheet-bd">
-        <div class="field"><label for="pushTarget">Copy into</label><select id="pushTarget"><option value="">Choose a sub-account</option>${targets.map((t) => `<option value="${esc(t.location_id)}">${esc(t.name || t.location_id)}</option>`).join('')}</select></div>
+        <div class="field"><label for="pushTarget">Copy into</label><select id="pushTarget"><option value="">Choose a sub-account</option>${targets.map((t) => `<option value="${esc(t.location_id)}">${esc(t.name || 'Unnamed')} · ${esc(t.location_id)}</option>`).join('')}</select><div class="sec" id="pushTargetInfo" style="font-size:12px;margin-top:6px"></div></div>
         <div class="field"><label for="pushScope">What to copy</label><select id="pushScope"><option value="all">Whole sub-account · ${N(me.contacts)} contacts</option>${pk.map((p) => `<option value="${p.id}"${String(p.id) === String(pkgId) ? ' selected' : ''}>Package #${p.id} · ${N(p.contact_count)} contacts</option>`).join('')}</select></div>
         <div class="field"><label for="pushTag">Tag added to copied contacts</label><input type="text" id="pushTag" value="vault-push:${esc(slug(me.name || loc))}"></div>
         <div class="grp">
@@ -568,6 +568,12 @@
       <div class="sheet-ft"><span class="sec" id="pushMsg" style="margin-right:auto;align-self:center;font-size:12.5px"></span><button class="btn tinted" id="pushPreview">Preview</button><button class="btn" id="pushStart" disabled>Start copying</button></div>`, { wide: true });
     const body = () => { const scope = box.querySelector('#pushScope').value; return { targetLocationId: box.querySelector('#pushTarget').value, ...(scope === 'all' ? { sourceLocationId: loc } : { packageId: Number(scope) }), tag: box.querySelector('#pushTag').value.trim() || null, include: { documents: box.querySelector('#pushDocs').checked, customFields: box.querySelector('#pushCustom').checked, opportunities: box.querySelector('#pushOpps').checked } }; };
     box.querySelectorAll('select, input').forEach((x) => x.addEventListener('change', () => { box.querySelector('#pushStart').disabled = true; }));
+    const tInfo = () => {
+      const t = targets.find((x) => x.location_id === box.querySelector('#pushTarget').value);
+      const same = t ? targets.filter((x) => (x.name || '') === (t.name || '')).length : 0;
+      box.querySelector('#pushTargetInfo').innerHTML = t ? `ID <span class="mono">${esc(t.location_id)}</span> · ${N(t.contacts)} contacts backed up${t.last_job?.finished_at ? ` · last backup ${esc(V.D(t.last_job.finished_at))}` : ''} · <a href="${esc(V.ghlLocationUrl(t.location_id))}" target="_blank" rel="noopener">Open in GHL</a>${same > 1 ? `<br><span style="color:var(--orange)">${same} sub-accounts are named ${esc(t.name || 'Unnamed')}. Check the ID.</span>` : ''}` : '';
+    };
+    box.querySelector('#pushTarget').addEventListener('change', tInfo);
     box.querySelector('#pushPreview').onclick = async () => {
       const b = body(); if (!b.targetLocationId) return RGS.toast('Choose where to copy into', { error: true });
       box.querySelector('#pushMsg').innerHTML = '<span class="spin" style="vertical-align:-2px"></span>&nbsp;Checking the fields there…';
