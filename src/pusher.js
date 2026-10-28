@@ -61,7 +61,7 @@ export async function previewCounts({ sourceLocationId, packageId, filters }) {
 // Can this target's token upload documents? GHL checks scope before anything else, so an empty
 // upload for a contact that doesn't exist answers 401 "not authorized for this scope" only when the
 // permission is missing (otherwise 400/404/422). Nothing is created either way.
-export const UPLOAD_SCOPE_MSG = 'The target sub-account\'s token can\'t upload documents. In that sub-account, open Settings › Private Integrations, edit the RGS Tools integration and tick Forms › Edit (forms.write) and Medias › Edit (medias.write), save, then reconnect it on RGS Tools with the same token.';
+export const UPLOAD_SCOPE_MSG = 'The target sub-account\'s connection can\'t upload documents. If it shows "via agency" on RGS Tools › Sub-accounts, it is using the agency install, which can\'t upload documents yet: connect it with a Private Integration token instead (Sub-accounts › Add sub-account › One sub-account). If it already uses a token, edit that Private Integration in the sub-account, tick Forms › Edit (forms.write) and Medias › Edit (medias.write), save and reconnect it with the same token.';
 export async function canUploadFiles(target) {
   try {
     await ghl(target, 'POST', '/forms/upload-custom-files', { query: { contactId: 'rgs-permission-check', locationId: target }, form: new FormData() });
