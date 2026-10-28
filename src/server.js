@@ -470,6 +470,16 @@ app.post('/api/pushes/:id/cancel', ownPush, async (req, res) => {
 app.post('/api/pushes/:id/resume', ownPush, async (req, res) => {
   await q(`UPDATE pushes SET status='queued', finished_at=NULL, not_before=NULL, error=NULL WHERE id=$1 AND (status IN ('cancelled','failed') OR not_before IS NOT NULL)`, [req.params.id]); res.json({ ok: true });
 });
+// Go through a finished copy again: contacts already copied are updated in place (push_items), documents
+// already uploaded are skipped, and the ones that failed (e.g. before a missing permission was added) upload.
+app.post('/api/pushes/:id/rerun', ownPush, async (req, res) => {
+  const { rows: [p] } = await q('SELECT status, progress FROM pushes WHERE id=$1', [req.params.id]);
+  if (!p || ['queued', 'running'].includes(p.status)) return res.status(409).json({ error: 'This copy is already running.' });
+  const pr = { ...(p.progress || {}), contactsDone: 0, created: 0, updated: 0, filesFailed: 0, errors: [], note: 'running again' };
+  delete pr.cursor;
+  await q(`UPDATE pushes SET status='queued', finished_at=NULL, not_before=NULL, error=NULL, progress=$2 WHERE id=$1`, [req.params.id, pr]);
+  res.json({ ok: true });
+});
 app.delete('/api/pushes/:id', ownPush, async (req, res) => {
   await q(`DELETE FROM pushes WHERE id=$1 AND status NOT IN ('running')`, [req.params.id]); res.json({ ok: true });
 });
