@@ -58,6 +58,20 @@ export async function previewCounts({ sourceLocationId, packageId, filters }) {
   return { contacts: Number(r.contacts), files: Number(r.files), bytes: Number(r.bytes), opportunities: Number(r.opportunities), fileFields: r.file_fields || [], customFields: r.custom_fields || [] };
 }
 
+// Can this target's token upload documents? GHL checks scope before anything else, so an empty
+// upload for a contact that doesn't exist answers 401 "not authorized for this scope" only when the
+// permission is missing (otherwise 400/404/422). Nothing is created either way.
+export const UPLOAD_SCOPE_MSG = 'The target sub-account\'s connection can\'t upload documents. If it shows "via agency" on RGS Tools › Sub-accounts, it is using the agency install, which can\'t upload documents yet: connect it with a Private Integration token instead (Sub-accounts › Add sub-account › One sub-account). If it already uses a token, edit that Private Integration in the sub-account, tick Forms › Edit (forms.write) and Medias › Edit (medias.write), save and reconnect it with the same token.';
+export async function canUploadFiles(target) {
+  try {
+    await ghl(target, 'POST', '/forms/upload-custom-files', { query: { contactId: 'rgs-permission-check', locationId: target }, form: new FormData() });
+    return true;
+  } catch (err) {
+    if (/-> 401/.test(err.message) && /scope/i.test(err.message)) return false;
+    return true;   // any other answer means the call got past the scope check
+  }
+}
+
 // What will happen to each field in the target: exists (with type) or will be created.
 export async function previewMapping({ sourceLocationId, packageId, filters, targetLocationId }) {
   const counts = await previewCounts({ sourceLocationId, packageId, filters });
@@ -66,7 +80,8 @@ export async function previewMapping({ sourceLocationId, packageId, filters, tar
   const fields = [];
   for (const name of counts.fileFields) { const f = byName.get(norm(name)); fields.push({ name, kind: 'file', target: f ? (/FILE/i.test(f.dataType) ? 'exists' : `exists but is ${f.dataType} — files will be skipped`) : 'will be created (FILE_UPLOAD)' }); }
   for (const name of counts.customFields) { const f = byName.get(norm(name)); fields.push({ name, kind: 'text', target: f ? `exists (${f.dataType})` : 'will be created (TEXT)' }); }
-  return { ...counts, fields };
+  const uploadOk = counts.files ? await canUploadFiles(targetLocationId) : true;
+  return { ...counts, fields, uploadOk, uploadMsg: uploadOk ? null : `${UPLOAD_SCOPE_MSG} Then preview again.` };
 }
 
 const norm = s => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -129,6 +144,10 @@ export async function runPush(push) {
       } catch (err) { fail('pipelines', err); stageMap = new Map(); }
     }
 
+    // Documents need an upload permission many tokens don't have. Check once up front so a missing
+    // permission stops the copy with one clear message instead of failing every file.
+    if (inc.documents && !(await canUploadFiles(target))) throw new Error(`${UPLOAD_SCOPE_MSG} Then press Resume.`);
+
     // 3. contacts, in stable order with a cursor so a resume continues where it stopped
     const { sql: set, params } = contactSet({ sourceLocationId: source, packageId: push.package_id, filters: opts.filters });
     let cursor = progress.cursor || '';
@@ -141,7 +160,7 @@ export async function runPush(push) {
           if (inc.documents) await pushFiles(c, tid, { source, target, fieldFor, progress, fail });
           if (inc.opportunities && stageMap) await pushOpportunities(c, tid, { source, target, stageMap, progress, fail });
         } catch (err) {
-          if (err.dailyLimit || err.cancelled) throw err;
+          if (err.dailyLimit || err.cancelled || err.uploadScope) throw err;
           fail(`contact ${c.contact_id}`, err);
         }
         progress.contactsDone++;
@@ -205,9 +224,13 @@ async function pushContact(c, { source, target, tag, fieldFor, inc, progress }) 
     catch (err) { if (!/404/.test(err.message)) throw err; id = null; }     // deleted in target since: recreate below
   }
   if (!id) {
-    const data = await ghl(target, 'POST', '/contacts/upsert', { body });
+    // Upsert matches on email/phone and refuses a contact with neither; those are created instead
+    // (push_items remembers the new id, so running the copy again updates rather than duplicates).
+    const data = body.email || body.phone
+      ? await ghl(target, 'POST', '/contacts/upsert', { body })
+      : await ghl(target, 'POST', '/contacts/', { body });
     id = data.contact?.id || data.id;
-    if (!id) throw new Error('upsert returned no contact id');
+    if (!id) throw new Error('GHL returned no contact id');
     if (data.new === false) progress.updated++; else progress.created++;
     await remember(target, 'contact', key, id);
   }
@@ -242,6 +265,7 @@ async function pushFiles(c, targetContactId, { source, target, fieldFor, progres
         for (const f of batch) { await remember(target, 'file', String(f.id), targetContactId); progress.filesDone++; }
       } catch (err) {
         if (err.dailyLimit) throw err;
+        if (/-> 401/.test(err.message) && /scope/i.test(err.message)) throw Object.assign(new Error(`${UPLOAD_SCOPE_MSG} Then press Resume.`), { uploadScope: true });
         progress.filesFailed += batch.length; fail(`upload ${name} for ${c.contact_id}`, err);
       }
       batch = []; bytes = 0;
