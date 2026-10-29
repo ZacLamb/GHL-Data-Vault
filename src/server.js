@@ -9,7 +9,7 @@ import { startScheduler, getSchedule, setSchedule, backupAll } from './scheduler
 import { importAgencyLocations } from './ghl.js';
 import { createRequire } from 'node:module';
 import cookieParser from 'cookie-parser';
-import { ALL_SOURCES } from './sources/index.js';
+import { ALL_SOURCES, ON_DEMAND_SOURCES } from './sources/index.js';
 import { getObjectStream } from './storage.js';
 import { ghl, parseFileFieldValue } from './ghl.js';
 import { createPackage, dissolvePackage, PACKAGE_SIZES, STANDARD_COLUMNS } from './packager.js';
@@ -258,10 +258,11 @@ app.post('/api/locations/:id/backup-enabled', ownLoc, async (req, res) => { awai
 app.post('/api/jobs', async (req, res) => {
   const { locationId, sources, incremental } = req.body || {};
   if (!(await own(req, res, String(locationId || '')))) return;
-  const chosen = (sources?.length ? sources : ALL_SOURCES).filter(s => ALL_SOURCES.includes(s));
+  const chosen = (sources?.length ? sources : ALL_SOURCES).filter(s => ALL_SOURCES.includes(s) || ON_DEMAND_SOURCES.includes(s));
+  if (!chosen.length) return res.status(400).json({ error: 'Nothing to back up: pick at least one source' });
   let since = null;
   if (incremental) {
-    const { rows: [last] } = await q(`SELECT started_at FROM jobs WHERE location_id=$1 AND status='done' ORDER BY id DESC LIMIT 1`, [locationId]);
+    const { rows: [last] } = await q(`SELECT started_at FROM jobs WHERE location_id=$1 AND status='done' AND NOT (sources <@ ARRAY['notes']::text[]) ORDER BY id DESC LIMIT 1`, [locationId]);
     if (!last) return res.status(409).json({ error: 'No completed export yet — run a full export first' });
     since = new Date(new Date(last.started_at).getTime() - 60 * 60_000); // 1h overlap
   }
@@ -287,6 +288,23 @@ app.post('/api/jobs/:id/retry-failed', ownJob, async (req, res) => {
   await q(`UPDATE files SET status='pending' WHERE job_id=$1 AND status='failed'`, [job.id]);
   const { rows: [fresh] } = await q(`INSERT INTO jobs (location_id, sources) VALUES ($1,$2) RETURNING *`, [job.location_id, job.sources]);
   res.json(fresh);
+});
+
+// --- notes -------------------------------------------------------------------------------
+app.get('/api/locations/:id/notes/summary', ownLoc, async (req, res) => {
+  const { rows: [s] } = await q(`SELECT count(*)::int AS notes, count(DISTINCT contact_id)::int AS contacts, max(date_added) AS newest FROM notes WHERE location_id=$1`, [req.params.id]);
+  const { rows: [j] } = await q(`SELECT id, status, progress, finished_at, not_before FROM jobs WHERE location_id=$1 AND 'notes' = ANY(sources) ORDER BY id DESC LIMIT 1`, [req.params.id]);
+  res.json({ ...s, job: j || null });
+});
+app.get('/api/locations/:id/notes.csv', ownLoc, async (req, res) => {
+  const { rows: [loc] } = await q('SELECT name FROM locations WHERE location_id=$1', [req.params.id]);
+  const file = `${String(loc?.name || req.params.id).replace(/[^\w.-]+/g, '-').slice(0, 60)}-notes.csv`;
+  res.set('Content-Type', 'text/csv').set('Content-Disposition', `attachment; filename="${file}"`);
+  res.write('\uFEFF' + ['Contact', 'Email', 'Phone', 'Contact ID', 'Note date', 'Written by', 'Note', 'Note ID'].join(',') + '\n');
+  const { rows } = await q(`SELECT n.*, u.name AS user_name FROM notes n LEFT JOIN users u ON u.location_id=n.location_id AND u.user_id=n.user_id
+                            WHERE n.location_id=$1 ORDER BY n.contact_name NULLS LAST, n.contact_id, n.date_added`, [req.params.id]);
+  for (const r of rows) res.write([r.contact_name, r.email, r.phone, r.contact_id, r.date_added ? r.date_added.toISOString() : '', r.user_name || r.user_id, r.body, r.note_id].map(csvCell).join(',') + '\n');
+  res.end();
 });
 
 // --- manifest + zip --------------------------------------------------------------------

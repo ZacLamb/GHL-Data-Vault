@@ -33,7 +33,7 @@ export async function backupAll(ownerId, { mode, sources, importFirst, trigger =
     if (busy.length) { skipped++; continue; }
     let since = null;
     if (mode === 'incremental') {
-      const { rows: [last] } = await q(`SELECT started_at FROM jobs WHERE location_id=$1 AND status='done' ORDER BY id DESC LIMIT 1`, [location_id]);
+      const { rows: [last] } = await q(`SELECT started_at FROM jobs WHERE location_id=$1 AND status='done' AND NOT (sources <@ ARRAY['notes']::text[]) ORDER BY id DESC LIMIT 1`, [location_id]);
       if (last) since = new Date(new Date(last.started_at).getTime() - 60 * 60_000);   // never backed up → full crawl
     }
     await q(`INSERT INTO jobs (location_id, sources, since, trigger) VALUES ($1,$2,$3,$4)`, [location_id, sources, since, trigger]);

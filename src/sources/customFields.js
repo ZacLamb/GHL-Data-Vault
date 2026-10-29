@@ -39,7 +39,7 @@ async function search(locationId, body) {
   }
 }
 
-async function walkContacts(locationId, { filters, progress, key, save }, onPage) {
+export async function walkContacts(locationId, { filters, progress, key, save }, onPage) {
   const sortKey = `${key}Sort`;
   let cursor = repairCursor(progress[key]) || undefined;
   if (cursor && !progress[sortKey]) progress[sortKey] = 'default';   // checkpoint from before the pinned sort: keep GHL's default order

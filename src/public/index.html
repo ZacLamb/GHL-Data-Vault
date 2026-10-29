@@ -308,7 +308,7 @@
     $('split').classList.add('has-insp');
     const box = $('insp');
     if (ins.loc !== l.location_id) {
-      ins.loc = l.location_id; ins.jobs = []; ins.pool = null; ins.pkgs = []; ins.pushes = []; ins.at = 0; ins.openJobs = new Set(); ins.showAll = false;
+      ins.loc = l.location_id; ins.notes = null; ins.jobs = []; ins.pool = null; ins.pkgs = []; ins.pushes = []; ins.at = 0; ins.openJobs = new Set(); ins.showAll = false;
       box.innerHTML = `<div id="iTop"></div><div id="iHist"></div><div id="iPkgs"></div><div id="iPush"></div><div id="iDanger"></div>`;
       box.scrollTop = 0;
     }
@@ -346,6 +346,7 @@
         <a class="li click" href="/analytics.html?loc=${encodeURIComponent(l.location_id)}">${RGS.glyph('folder', '--t-orange')}<div class="main"><b>Documents</b><span class="sub">Breakdowns, filters and custom exports</span></div><span class="end"><span class="chev">${I('right')}</span></span></a>
         <a class="li click" href="/usage.html?loc=${encodeURIComponent(l.location_id)}">${RGS.glyph('users', '--t-green')}<div class="main"><b>Team usage</b><span class="sub">Messages, calls and deals per user</span></div><span class="end"><span class="chev">${I('right')}</span></span></a>
         <div class="li click" data-download="location">${RGS.glyph('download', '--t-blue')}<div class="main"><b>Download files</b><span class="sub">Zip parts or a link to send someone</span></div><span class="end"><span class="chev">${I('right')}</span></span></div>
+        <div id="iNotes"></div>
         <a class="li click" href="/api/locations/${encodeURIComponent(l.location_id)}/manifest.csv">${RGS.glyph('list', '--t-gray')}<div class="main"><b>File list (CSV)</b><span class="sub">Which file belongs to which contact</span></div><span class="end">${I('download')}</span></a>
         ${ff ? `<div class="li click" data-retry="${j?.id || ''}">${RGS.glyph('refresh', '--t-orange')}<div class="main"><b>Try failed files again</b><span class="sub">${N(ff)} file${ff === 1 ? '' : 's'} couldn't be saved last time</span></div><span class="end"><span class="chev">${I('right')}</span></span></div>` : ''}
       </div>`;
@@ -358,11 +359,31 @@
   }
   async function loadInspExtras(loc) {
     ins.at = Date.now();
-    const [jobs, pool, pkgs, pushes] = await Promise.all([api(`/api/jobs?locationId=${encodeURIComponent(loc)}`), api(`/api/locations/${encodeURIComponent(loc)}/pool`), api(`/api/packages?locationId=${encodeURIComponent(loc)}`), api(`/api/pushes?locationId=${encodeURIComponent(loc)}`)]);
+    const [jobs, pool, pkgs, pushes, notes] = await Promise.all([api(`/api/jobs?locationId=${encodeURIComponent(loc)}`), api(`/api/locations/${encodeURIComponent(loc)}/pool`), api(`/api/packages?locationId=${encodeURIComponent(loc)}`), api(`/api/pushes?locationId=${encodeURIComponent(loc)}`), api(`/api/locations/${encodeURIComponent(loc)}/notes/summary`)]);
     if (ins.loc !== loc) return;
+    ins.notes = notes && !notes.error ? notes : null;
     ins.jobs = Array.isArray(jobs) ? jobs : []; ins.pool = pool && !pool.error ? pool : null; ins.pkgs = Array.isArray(pkgs) ? pkgs : []; ins.pushes = Array.isArray(pushes) ? pushes : [];
     const l = (state.locs || []).find((x) => x.location_id === loc); if (!l) return;
-    renderHistory(l); renderPkgs(l); renderPushes(l);
+    renderHistory(l); renderPkgs(l); renderPushes(l); renderNotes(l);
+  }
+  // Notes: GHL has no notes export. "Get notes" reads every contact's notes (one request per contact),
+  // then the CSV downloads from what was saved.
+  function renderNotes(l) {
+    const n = ins.notes, el = $('iNotes'); if (!el) return;
+    const j = n?.job, busy = j && ['queued', 'running'].includes(j.status), p = j?.progress?.notes || {};
+    const enc = encodeURIComponent(l.location_id);
+    let sub, end;
+    if (busy) {
+      sub = j.not_before && new Date(j.not_before) > new Date() ? `Waiting for GHL's daily limit to reset · ${N(p.contactsSeen || 0)} contacts read` : `Reading notes · ${N(p.contactsSeen || 0)} of ${N(l.contacts || 0)} contacts · ${N(p.notesFound || 0)} notes`;
+      end = `<button class="btn sm tinted" data-cancel="${j.id}">Stop</button>`;
+    } else if (n && n.notes) {
+      sub = `${N(n.notes)} notes on ${N(n.contacts)} contacts${j?.finished_at ? ' · read ' + ago(j.finished_at) : ''}${j && ['failed', 'cancelled'].includes(j.status) ? ' · stopped part-way' : ''}`;
+      end = `<a class="btn sm tinted" href="/api/locations/${enc}/notes.csv">Download CSV</a><button class="btn sm plain" data-getnotes="${esc(l.location_id)}">Refresh</button>`;
+    } else {
+      sub = j && j.status === 'done' ? 'No notes found on any contact' : 'Read every contact’s notes into one CSV. Takes about a minute per 500 contacts.';
+      end = `<button class="btn sm tinted" data-getnotes="${esc(l.location_id)}">Get notes</button>`;
+    }
+    setHtml(el, `<div class="li">${RGS.glyph('message', '--t-purple')}<div class="main"><b>Notes (CSV)</b><span class="sub">${sub}</span></div><span class="end" style="display:flex;gap:6px">${end}</span></div>`);
   }
   const setHtml = (el, html) => { if (el && el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; } };
 
@@ -689,7 +710,8 @@
     const prr = e.target.closest('[data-pushrerun]'); if (prr) { const x = await api(`/api/pushes/${prr.dataset.pushrerun}/rerun`, { method: 'POST' }); RGS.toast(x.error || 'Running the copy again', x.error ? { error: true } : {}); ins.at = 0; renderInsp(); return; }
     const pd = e.target.closest('[data-pushdel]');
     if (pd) { if (!(await V.ask({ title: 'Remove this copy from the list?', body: 'Nothing is deleted in GHL.', ok: 'Remove', danger: true }))) return; await api(`/api/pushes/${pd.dataset.pushdel}`, { method: 'DELETE' }); ins.at = 0; renderInsp(); return; }
-    const b = e.target.closest('[data-run],[data-sync],[data-cancel],[data-resume],[data-retry],[data-reset],[data-del]'); if (!b) return;
+    const b = e.target.closest('[data-getnotes],[data-run],[data-sync],[data-cancel],[data-resume],[data-retry],[data-reset],[data-del]'); if (!b) return;
+    if (b.dataset.getnotes) { const r = await api('/api/jobs', { method: 'POST', body: { locationId: b.dataset.getnotes, sources: ['notes'] } }); RGS.toast(r.error || 'Reading notes. The CSV is ready when it finishes.', r.error ? { error: true } : {}); ins.at = 0; load(); return; }
     if (b.dataset.run) { const r = await api('/api/jobs', { method: 'POST', body: { locationId: b.dataset.run, sources: manualSources() } }); RGS.toast(r.error || 'Backup started', r.error ? { error: true } : {}); ins.at = 0; load(); }
     else if (b.dataset.sync) { const r = await api('/api/jobs', { method: 'POST', body: { locationId: b.dataset.sync, sources: manualSources(), incremental: true } }); RGS.toast(r.error || `Getting changes since ${DT(r.since)}`, r.error ? { error: true } : {}); ins.at = 0; load(); }
     else if (b.dataset.cancel) { await api(`/api/jobs/${b.dataset.cancel}/cancel`, { method: 'POST' }); RGS.toast('Stopping after the current page'); ins.at = 0; load(); }
