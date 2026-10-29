@@ -42,6 +42,7 @@
     documents: ['Documents & contracts', 'Signed documents and proposals'],
     usage: ['Team activity', 'Users, messages and calls for the usage report'],
     file_dates: ['Upload dates', 'Looks up when each file was uploaded'],
+    notes: ['Notes', 'Every note on every contact, for the notes CSV'],
   };
   const srcName = (k) => (SOURCES[k] || [String(k).replace(/_/g, ' ')])[0];
 

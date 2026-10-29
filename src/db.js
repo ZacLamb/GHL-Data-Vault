@@ -227,6 +227,12 @@ export async function migrate() {
     ALTER TABLE contacts ADD COLUMN IF NOT EXISTS assigned_to TEXT;
     ALTER TABLE contacts ADD COLUMN IF NOT EXISTS created_by_user TEXT;
     ALTER TABLE contacts ADD COLUMN IF NOT EXISTS source TEXT;
+    CREATE TABLE IF NOT EXISTS notes (            -- contact notes, filled by the on-demand "notes" source
+      location_id TEXT NOT NULL, note_id TEXT NOT NULL, contact_id TEXT NOT NULL,
+      contact_name TEXT, email TEXT, phone TEXT, body TEXT, user_id TEXT, date_added TIMESTAMPTZ, job_id INT,
+      PRIMARY KEY (location_id, note_id)
+    );
+    CREATE INDEX IF NOT EXISTS notes_contact ON notes(location_id, contact_id);
     ALTER TABLE locations ADD COLUMN IF NOT EXISTS ghl_deleted_at TIMESTAMPTZ;   -- sub-account deleted in GHL from Usage; the backup is kept
   `);
   // One-time cleanup: recordings that 422'd are calls with no recording, not failures.
