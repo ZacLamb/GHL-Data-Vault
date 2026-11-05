@@ -276,7 +276,7 @@
     if (loading) return; loading = true;
     try {
       const r = await fetch('/api/locations', { credentials: 'same-origin' });
-      if (r.status === 401 || r.status === 402) { const d = await r.json().catch(() => ({})); if (d.login || d.subscribe) location.href = d.login || d.subscribe; return; }
+      if (r.status === 401 || r.status === 402) { const d = await r.json().catch(() => ({})); if ((d.login || d.subscribe) && !(window.RGS && RGS.embedded && RGS.embedded())) location.href = d.login || d.subscribe; else $('rows').innerHTML = '<div class="empty"><b>This page has expired</b>Close it and open Backup &amp; Insights again from the menu.</div>'; return; }
       if (!r.ok) throw new Error(r.status); const locs = await r.json(); if (!Array.isArray(locs)) throw new Error('bad payload');
       state.locs = locs;
     } catch (e) {

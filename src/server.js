@@ -134,6 +134,10 @@ app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'landing.
 app.get('/ui/:file(rgs-ui.css|rgs-shell.js)', (req, res) => res.redirect(302, `${hub.HUB_URL}/ui/${req.params.file}`));
 app.get('/config.js',(req, res) => res.type('application/javascript').send(`window.HUB_URL=${JSON.stringify(hub.HUB_URL)};window.TOOL_SLUG="data-vault";`));
 app.get('/app', hub.requireToolPage, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+// Inside HighLevel (opened from a sub-account's menu): the same page, signed in by the hub's token in its
+// address (#rgs-embed=...); /embed/session keeps it as a cookie for links and downloads in the frame.
+app.get('/embed', (req, res) => { res.set('Cache-Control', 'no-store'); res.sendFile(path.join(__dirname, 'public', 'index.html')); });
+app.post('/embed/session', hub.embedSession);
 for (const page of ['search.html', 'usage.html', 'analytics.html']) app.get('/' + page, hub.requireToolPage, (req, res) => res.sendFile(path.join(__dirname, 'public', page)));
 app.use(express.static(path.join(__dirname, 'public'), { index: false, extensions: [] }));   // css, js, fonts; html pages are routed above
 app.use('/api', hub.requireTool);
