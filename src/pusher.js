@@ -9,6 +9,7 @@ import { q } from './db.js';
 import { ghl } from './ghl.js';
 import { getObjectStream } from './storage.js';
 import { buildFilter } from './analytics.js';
+import { saveContact } from './push-contact.js';
 
 const BATCH = 50;                       // contacts per progress checkpoint
 const UPLOAD_BATCH_BYTES = 20 * 1024 * 1024;   // multipart batches stay under this
@@ -33,7 +34,7 @@ export async function createPush({ targetLocationId, sourceLocationId, packageId
   const { rows: [push] } = await q(
     `INSERT INTO pushes (source_location_id, target_location_id, package_id, label, options, status, progress)
      VALUES ($1,$2,$3,$4,$5,'queued',$6) RETURNING *`,
-    [src, targetLocationId, packageId || null, label || null, options, { total: counts.contacts, filesTotal: counts.files, contactsDone: 0, created: 0, updated: 0, filesDone: 0, filesFailed: 0, filesSkipped: 0, oppsDone: 0, errors: [] }]);
+    [src, targetLocationId, packageId || null, label || null, options, { total: counts.contacts, filesTotal: counts.files, contactsDone: 0, created: 0, merged: 0, updated: 0, failed: 0, filesDone: 0, filesFailed: 0, filesSkipped: 0, oppsDone: 0, errors: [] }]);
   return push;
 }
 
@@ -148,11 +149,18 @@ export async function runPush(push) {
     // permission stops the copy with one clear message instead of failing every file.
     if (inc.documents && !(await canUploadFiles(target))) throw new Error(`${UPLOAD_SCOPE_MSG} Then press Resume.`);
 
-    // 3. contacts, in stable order with a cursor so a resume continues where it stopped
+    // 3. contacts, oldest first so when several records are the same person the newest one's
+    // fields win. Stable (date, id) order with a cursor so a resume continues where it stopped.
+    // (A cursor from before this ordering is a plain id string: start over; copied contacts are
+    // updated in place, not duplicated.)
     const { sql: set, params } = contactSet({ sourceLocationId: source, packageId: push.package_id, filters: opts.filters });
-    let cursor = progress.cursor || '';
+    let cursor = Array.isArray(progress.cursor) ? progress.cursor : ['-infinity', ''];
+    if (progress.cursor && !Array.isArray(progress.cursor)) { progress.contactsDone = 0; }
+    const n = params.length;
     while (true) {
-      const { rows } = await q(`${set} AND c.contact_id > $${params.length + 1} ORDER BY c.contact_id LIMIT ${BATCH}`, [...params, cursor]);
+      const { rows } = await q(`WITH s AS (${set}) SELECT s.*, COALESCE(s.date_added, '-infinity'::timestamptz)::text AS _ord FROM s
+        WHERE (COALESCE(s.date_added, '-infinity'::timestamptz), s.contact_id) > ($${n + 1}::timestamptz, $${n + 2})
+        ORDER BY COALESCE(s.date_added, '-infinity'::timestamptz), s.contact_id LIMIT ${BATCH}`, [...params, ...cursor]);
       if (!rows.length) break;
       for (const c of rows) {
         try {
@@ -161,10 +169,11 @@ export async function runPush(push) {
           if (inc.opportunities && stageMap) await pushOpportunities(c, tid, { source, target, stageMap, progress, fail });
         } catch (err) {
           if (err.dailyLimit || err.cancelled || err.uploadScope) throw err;
-          fail(`contact ${c.contact_id}`, err);
+          progress.failed = (progress.failed || 0) + 1;
+          fail(`contact ${c.contact_id}${c.email ? ` (${c.email})` : ''}`, err);
         }
         progress.contactsDone++;
-        cursor = c.contact_id; progress.cursor = cursor;
+        cursor = [c._ord, c.contact_id]; progress.cursor = cursor;
       }
       await save(`${progress.contactsDone.toLocaleString()} / ${Number(progress.total).toLocaleString()} contacts`);
     }
@@ -214,26 +223,15 @@ async function pushContact(c, { source, target, tag, fieldFor, inc, progress }) 
     firstName: c.first_name || undefined, lastName: c.last_name || undefined,
     email: c.email || undefined, phone: c.phone || undefined, companyName: c.company || undefined,
     address1: c.address || undefined, city: c.city || undefined, state: c.state || undefined, postalCode: c.postal_code || undefined,
-    tags, source: c.source || 'vault push', customFields,
+    source: c.source || 'vault push', customFields,
   };
   if (!body.email && !body.phone && !body.firstName && !body.companyName) body.firstName = c.contact_id;   // GHL needs something identifying
   const existing = await mapped(target, 'contact', key);
-  let id;
-  if (existing) {
-    try { await ghl(target, 'PUT', `/contacts/${existing}`, { body: { ...body, locationId: undefined } }); id = existing; progress.updated++; }
-    catch (err) { if (!/404/.test(err.message)) throw err; id = null; }     // deleted in target since: recreate below
-  }
-  if (!id) {
-    // Upsert matches on email/phone and refuses a contact with neither; those are created instead
-    // (push_items remembers the new id, so running the copy again updates rather than duplicates).
-    const data = body.email || body.phone
-      ? await ghl(target, 'POST', '/contacts/upsert', { body })
-      : await ghl(target, 'POST', '/contacts/', { body });
-    id = data.contact?.id || data.id;
-    if (!id) throw new Error('GHL returned no contact id');
-    if (data.new === false) progress.updated++; else progress.created++;
-    await remember(target, 'contact', key, id);
-  }
+  const api = (method, path, b) => ghl(target, method, path, { body: b });
+  const { id, kind, dropped } = await saveContact(api, { body, tags, existing });
+  progress[kind] = (progress[kind] || 0) + 1;
+  if (dropped.length) { progress.fixed = (progress.fixed || 0) + 1; }
+  if (id !== existing) await remember(target, 'contact', key, id);
   return id;
 }
 
