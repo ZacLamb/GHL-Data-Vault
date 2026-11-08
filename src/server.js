@@ -497,7 +497,7 @@ app.post('/api/pushes/:id/resume', ownPush, async (req, res) => {
 app.post('/api/pushes/:id/rerun', ownPush, async (req, res) => {
   const { rows: [p] } = await q('SELECT status, progress FROM pushes WHERE id=$1', [req.params.id]);
   if (!p || ['queued', 'running'].includes(p.status)) return res.status(409).json({ error: 'This copy is already running.' });
-  const pr = { ...(p.progress || {}), contactsDone: 0, created: 0, updated: 0, filesFailed: 0, errors: [], note: 'running again' };
+  const pr = { ...(p.progress || {}), contactsDone: 0, created: 0, merged: 0, updated: 0, failed: 0, fixed: 0, filesFailed: 0, errors: [], note: 'running again' };
   delete pr.cursor;
   await q(`UPDATE pushes SET status='queued', finished_at=NULL, not_before=NULL, error=NULL, progress=$2 WHERE id=$1`, [req.params.id, pr]);
   res.json({ ok: true });
