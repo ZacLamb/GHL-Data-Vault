@@ -109,7 +109,20 @@ export async function textsStatus(ownerId) {
       count(*) FILTER (WHERE EXISTS (SELECT 1 FROM jobs j WHERE j.location_id=l.location_id AND 'message_text' = ANY(j.sources) AND j.status IN ('queued','running')))::int AS collecting,
       (SELECT count(*) FROM text_outcomes t JOIN locations l2 ON l2.location_id=t.location_id WHERE l2.owner_id=$1)::int AS texts
     FROM locations l WHERE l.owner_id=$1 AND l.ghl_deleted_at IS NULL`, [ownerId]);
-  return { ...s, refreshing: running.get(ownerId) || null, ai: !!AI_KEY() };
+  // The wording pass, per sub-account (latest run of each): drives the progress bar on the page.
+  const { rows: jobs } = await q(`
+    SELECT DISTINCT ON (j.location_id) j.location_id, l.name, j.status, j.not_before, j.created_at, j.finished_at,
+           j.progress->'message_text' AS p
+    FROM jobs j JOIN locations l ON l.location_id=j.location_id
+    WHERE l.owner_id=$1 AND 'message_text' = ANY(j.sources)
+    ORDER BY j.location_id, j.id DESC`, [ownerId]);
+  const collect = jobs.map((j) => ({
+    location_id: j.location_id, name: j.name, created_at: j.created_at, finished_at: j.finished_at,
+    status: j.status === 'queued' && j.not_before && new Date(j.not_before) > Date.now() ? 'paused' : j.status,
+    resumes: j.not_before, conversations: Number(j.p?.conversations || 0), total: j.p?.total != null ? Number(j.p.total) : null,
+    messages: Number(j.p?.messages || 0), error: j.p?.error || null,
+  }));
+  return { ...s, refreshing: running.get(ownerId) || null, ai: !!AI_KEY(), collect };
 }
 
 /** Queue the one-off wording pass for sub-accounts that texted in the last 90 days and don't have it yet. */
