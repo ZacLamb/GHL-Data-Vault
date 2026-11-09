@@ -1,5 +1,5 @@
 import { contactFields, opportunityFields } from './customFields.js';
-import { conversations } from './conversations.js';
+import { conversations, messageText } from './conversations.js';
 import { forms, surveys } from './submissions.js';
 import { media } from './media.js';
 import { documents } from './documents.js';
@@ -18,7 +18,8 @@ export const SOURCES = {
   usage,
   file_dates: fileDates,
   notes,
+  message_text: messageText,
 };
 // Sources that only run when asked for by name (never in Back up / the monthly backup).
-export const ON_DEMAND_SOURCES = ['notes'];
+export const ON_DEMAND_SOURCES = ['notes', 'message_text'];
 export const ALL_SOURCES = Object.keys(SOURCES).filter(s => !ON_DEMAND_SOURCES.includes(s));

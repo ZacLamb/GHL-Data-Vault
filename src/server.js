@@ -18,6 +18,7 @@ import { queueBundles } from './bundler.js';
 import { searchContacts, searchFiles, contactDetail, agencyTotals } from './search.js';
 import { summary, breakdowns, search, searchAll } from './analytics.js';
 import { locationUsage, userUsage, dailySeries, agencyOverview } from './usage.js';
+import { rankTexts, textDetail, textsStatus, collectText, refreshAll } from './texts.js';
 import { agencyStatus, saveAgencyToken, removeAgencyToken, deleteSubAccount } from './agency.js';
 import crypto from 'node:crypto';
 
@@ -138,7 +139,7 @@ app.get('/app', hub.requireToolPage, (req, res) => res.sendFile(path.join(__dirn
 // address (#rgs-embed=...); /embed/session keeps it as a cookie for links and downloads in the frame.
 app.get('/embed', (req, res) => { res.set('Cache-Control', 'no-store'); res.sendFile(path.join(__dirname, 'public', 'index.html')); });
 app.post('/embed/session', hub.embedSession);
-for (const page of ['search.html', 'usage.html', 'analytics.html']) app.get('/' + page, hub.requireToolPage, (req, res) => res.sendFile(path.join(__dirname, 'public', page)));
+for (const page of ['search.html', 'usage.html', 'analytics.html', 'texts.html']) app.get('/' + page, hub.requireToolPage, (req, res) => res.sendFile(path.join(__dirname, 'public', page)));
 app.use(express.static(path.join(__dirname, 'public'), { index: false, extensions: [] }));   // css, js, fonts; html pages are routed above
 app.use('/api', hub.requireTool);
 app.get('/api/me', hub.me);
@@ -266,7 +267,7 @@ app.post('/api/jobs', async (req, res) => {
   if (!chosen.length) return res.status(400).json({ error: 'Nothing to back up: pick at least one source' });
   let since = null;
   if (incremental) {
-    const { rows: [last] } = await q(`SELECT started_at FROM jobs WHERE location_id=$1 AND status='done' AND NOT (sources <@ ARRAY['notes']::text[]) ORDER BY id DESC LIMIT 1`, [locationId]);
+    const { rows: [last] } = await q(`SELECT started_at FROM jobs WHERE location_id=$1 AND status='done' AND NOT (sources <@ ARRAY['notes','message_text']::text[]) ORDER BY id DESC LIMIT 1`, [locationId]);
     if (!last) return res.status(409).json({ error: 'No completed export yet — run a full export first' });
     since = new Date(new Date(last.started_at).getTime() - 60 * 60_000); // 1h overlap
   }
@@ -595,6 +596,15 @@ app.post('/api/locations/:id/delete-in-ghl', ownLoc, async (req, res) => {
   catch (err) { console.error('delete sub-account', req.params.id, err.message); res.status(err.status || 500).json({ error: err.message }); }
 });
 
+// --- best texts (all of the account's sub-accounts) ------------------------------------------
+app.get('/api/texts/status', async (req, res) => res.json(await textsStatus(me(req))));
+app.post('/api/texts/collect', async (req, res) => res.json(await collectText(me(req), { all: !!req.body?.all })));
+app.post('/api/texts/refresh', async (req, res) => res.json(refreshAll(me(req))));
+app.get('/api/texts', async (req, res) => {
+  const { from, to, locationId, minSends, sort, sentBy } = req.query;
+  res.json(await rankTexts(me(req), { from, to, locationId, minSends, sort, sentBy }));
+});
+app.get('/api/texts/:key', async (req, res) => res.json(await textDetail(me(req), req.params.key, req.query)));
 app.get('/api/usage/overview', async (req, res) => res.json(await agencyOverview(req.query.from, req.query.to, me(req))));
 app.get('/api/locations/:id/usage', ownLoc, async (req, res) => res.json(await locationUsage(req.params.id, req.query.from, req.query.to)));
 app.get('/api/locations/:id/usage/users', ownLoc, async (req, res) => res.json(await userUsage(req.params.id, req.query.from, req.query.to)));

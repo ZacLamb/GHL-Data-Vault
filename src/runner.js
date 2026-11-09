@@ -3,6 +3,7 @@ import { SOURCES } from './sources/index.js';
 import { buildPackage } from './packager.js';
 import { buildBundle } from './bundler.js';
 import { runPush } from './pusher.js';
+import { analyzeLocation } from './texts.js';
 
 const MAX = Number(process.env.MAX_CONCURRENT_JOBS || 8);
 const PUSH_MAX = Math.max(1, Number(process.env.PUSH_CONCURRENCY || 2));
@@ -59,6 +60,10 @@ export async function runJob(job) {
   const failed = job.sources.some(s => progress[s]?.status === 'failed');
   await q(`UPDATE jobs SET status=$2, finished_at=now(), progress=$3 WHERE id=$1`,
     [job.id, failed ? 'failed' : 'done', progress]);
+  // New messages (or newly collected wording): refresh this sub-account's Best texts numbers.
+  if (job.sources.some((x) => x === 'conversations' || x === 'message_text')) {
+    analyzeLocation(job.location_id).catch((err) => console.error(`[texts ${job.location_id}]`, err.message));
+  }
 }
 
 // GHL's daily quota resets at midnight UTC (observed); add a margin. If a job is parked and
