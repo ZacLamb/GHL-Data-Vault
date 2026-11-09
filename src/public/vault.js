@@ -50,7 +50,9 @@
   function nav(active) {
     const el = document.getElementById('nav'); if (!el) return;
     const items = [['vault', '/app', 'Backups'], ['search', '/search.html', 'Search'], ['usage', '/usage.html', 'Usage'], ['texts', '/texts.html', 'Best texts']];
-    el.innerHTML = items.map(([k, href, label]) => `<a href="${href}" class="${k === active ? 'on' : ''}">${label}</a>`).join('');
+    // Inside HighLevel the tool covers one sub-account: no agency-wide pages.
+    const inside = window.RGS && RGS.embedded && RGS.embedded();
+    el.innerHTML = items.filter(([k]) => !inside || k === 'vault').map(([k, href, label]) => `<a href="${href}" class="${k === active ? 'on' : ''}">${label}</a>`).join('');
   }
 
   // ---------- sheets ----------
