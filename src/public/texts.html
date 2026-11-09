@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Best texts · Backup & Insights · RGS Tools</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="/config.js"></script>
+<script src="/ui/rgs-shell.js"></script>
+<link rel="stylesheet" href="/ui/rgs-ui.css">
+<link rel="stylesheet" href="/vault.css">
+<script src="/vault.js"></script>
+<style>
+  .wrap { max-width: 1500px; }
+  .controls { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 20px; }
+  .controls > div { min-width: 0; }
+  .controls #locSel { width: 240px; } .controls input[type=date] { width: 150px; } .controls #minSends { width: 90px; }
+  @media (max-width: 600px) { .controls > div, .controls #locSel, .controls input[type=date], .controls #minSends { width: 100%; flex: 1 1 140px; } .controls .seg { flex: 1 1 100%; } }
+  .tiles { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); margin-bottom: 18px; }
+  .tile .v { font-size: 22px; }
+  .banner { display: flex; gap: 12px; align-items: center; padding: 12px 14px; flex-wrap: wrap; }
+  .banner .main { flex: 1 1 320px; font-size: 13px; color: var(--sec); } .banner .main b { color: var(--text); font-weight: 550; }
+  table.tx { width: 100%; }
+  .tx td.msg { max-width: 560px; white-space: normal; text-align: left; line-height: 1.4; }
+  .tx td.msg .sub { margin-top: 3px; }
+  .tx tr.click { cursor: pointer; } .tx tr.click:hover td { background: var(--hover); }
+  .tx th.l, .tx td.l { text-align: left; }
+  .ph { color: var(--blue); font-weight: 500; }
+  .rate { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 64px; }
+  .rate i { display: block; height: 4px; border-radius: 2px; background: var(--fill); width: 60px; overflow: hidden; } .rate i b { display: block; height: 100%; }
+  .rank { color: var(--ter); font-variant-numeric: tabular-nums; }
+  .rep { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0 16px; }
+  .rep .r { padding: 7px 0; border-bottom: .5px solid var(--sep); font-size: 13px; }
+  .rep .r .sub { color: var(--sec); font-size: 11.5px; }
+  .lbl { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--fill); }
+  .lbl.positive { color: var(--green); } .lbl.negative { color: var(--orange); } .lbl.opt_out { color: var(--red); } .lbl.other { color: var(--sec); }
+  .example { white-space: pre-wrap; background: var(--fill); border-radius: 10px; padding: 10px 12px; font-size: 13px; margin-bottom: 14px; }
+</style>
+</head>
+<body>
+  <div class="toolbar-top">
+    <div class="seg" id="nav"></div>
+    <span class="spacer"></span>
+    <button class="icon-btn" id="csv" title="Download this table as CSV"></button>
+  </div>
+  <div class="wrap">
+    <div class="page-head"><div><h1>Best texts</h1><p>Which outbound texts get the best replies, across all your sub-accounts</p></div></div>
+    <div id="setup"></div>
+    <div class="controls">
+      <div><label for="locSel">Sub-account</label><select id="locSel"><option value="">All sub-accounts</option></select></div>
+      <div><label for="from">From</label><input id="from" type="date"></div>
+      <div><label for="to">To</label><input id="to" type="date"></div>
+      <div><label for="minSends">Min sends</label><input id="minSends" type="number" min="1" value="25"></div>
+      <div><label for="sentBy">Sent by</label><select id="sentBy"><option value="">Anyone</option><option value="automated">Workflows & blasts</option><option value="manual">Reps</option></select></div>
+      <div><label for="sort">Rank by</label><select id="sort"><option value="positive">Positive replies</option><option value="replies">Any reply</option><option value="won">Deals won</option><option value="optout">Fewest opt-outs</option><option value="sends">Most sent</option></select></div>
+      <div class="seg" id="quick"><button data-q="30">30 days</button><button data-q="90" class="on">90 days</button><button data-q="365">12 months</button></div>
+    </div>
+    <div class="tiles" id="kpis"></div>
+    <div class="table-wrap num"><table class="tx" id="list"></table></div>
+    <div class="foot" style="padding:10px 4px 30px">A reply is the contact's first text back within 3 days, before the next text you sent them. Names, amounts, links and numbers are swapped for <span class="ph">{placeholders}</span> so the same message sent to many people counts as one. Ranking uses a confidence-adjusted rate, so a text sent 30 times with 9 positive replies ranks above one sent 3 times with 2. Deals won = the contact had a deal marked won within 90 days of the text.</div>
+  </div>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const { esc, api, N, D } = V;
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const pct = (a, b) => (b ? (100 * a) / b : 0);
+  const P = (a, b) => (b ? pct(a, b).toFixed(pct(a, b) < 10 ? 1 : 0) + '%' : '—');
+  const LABEL = { positive: 'Positive', negative: 'Negative', opt_out: 'Opt-out', other: 'Unclear' };
+  let rows = [], status = null, poll = null;
+
+  const tpl = (t) => esc(t).replace(/\{(name|company|amount|link|phone|email|n)\}/g, '<span class="ph">{$1}</span>');
+  const rate = (a, b, color) => `<span class="rate">${P(a, b)}<i><b style="width:${Math.min(100, pct(a, b) * (color === 'var(--red)' ? 5 : 1.6))}%;background:${color}"></b></i></span>`;
+  const qs = () => new URLSearchParams({ from: $('from').value, to: $('to').value, locationId: $('locSel').value, minSends: $('minSends').value, sort: $('sort').value, sentBy: $('sentBy').value }).toString();
+
+  function setRange(days) { const t = new Date(); $('from').value = iso(new Date(t.getTime() - days * 86400000)); $('to').value = iso(t); }
+  $('quick').querySelectorAll('button').forEach((b) => b.onclick = () => { $('quick').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); setRange(Number(b.dataset.q)); load(); });
+  ['from', 'to'].forEach((id) => $(id).addEventListener('change', () => { $('quick').querySelectorAll('button').forEach((x) => x.classList.remove('on')); load(); }));
+  ['locSel', 'minSends', 'sort', 'sentBy'].forEach((id) => $(id).addEventListener('change', load));
+
+  async function loadStatus() {
+    status = await api('/api/texts/status');
+    if (status.error) return;
+    const s = status, need = s.active - s.collected - s.collecting;
+    let html = '';
+    if (s.refreshing) html = `<div class="main"><b>Working out results…</b> ${N(s.refreshing.done)} of ${N(s.refreshing.total || '?')} sub-accounts done. The table fills in as it goes.</div>`;
+    else if (s.collecting) html = `<div class="main"><b>Collecting message wording: ${N(s.collecting)} sub-account${s.collecting === 1 ? '' : 's'} in progress.</b> Results for each one appear here when it finishes. Progress shows on Backups.</div><button class="btn tinted" id="refresh">Refresh results</button>`;
+    else if (need > 0) html = `<div class="main"><b>${N(need)} active sub-account${need === 1 ? ' needs' : 's need'} a one-time pass to collect message wording.</b> Texts backed up before this feature have no wording saved. This reads each conversation again (no files are downloaded) and counts toward each sub-account's GHL API limit. New backups keep the wording automatically.</div><button class="btn" id="collect">Collect wording</button>`;
+    else if (!s.texts) html = `<div class="main"><b>No results yet.</b> Run a backup with Messages & recordings, or collect wording, and results appear here.</div><button class="btn tinted" id="refresh">Refresh results</button>`;
+    if (!s.ai && s.texts) html += `<div class="main" style="flex-basis:100%">Unclear replies (like “ok” or “who is this?”) are counted as unclear. Add an <b>ANTHROPIC_API_KEY</b> to the Backup & Insights service to have AI label them.</div>`;
+    $('setup').innerHTML = html ? `<div class="grp card banner">${html}</div>` : '';
+    if ($('collect')) $('collect').onclick = async () => {
+      const ok = await V.ask({ title: 'Collect message wording?', body: `Reads every conversation in the ${N(need)} sub-account${need === 1 ? '' : 's'} that sent texts in the last 90 days. Large ones can take hours and may pause at GHL's daily API limit, then resume on their own.`, ok: 'Collect', icon: 'message', grad: '--t-blue' });
+      if (!ok) return;
+      const r = await api('/api/texts/collect', { method: 'POST' });
+      RGS.toast(r.error || `Queued ${N(r.queued)} sub-account${r.queued === 1 ? '' : 's'}`, r.error ? { error: true } : {}); loadStatus();
+    };
+    if ($('refresh')) $('refresh').onclick = async () => { await api('/api/texts/refresh', { method: 'POST' }); RGS.toast('Working out results'); loadStatus(); };
+    clearTimeout(poll); if (s.refreshing || s.collecting) poll = setTimeout(() => { loadStatus(); load(); }, 20000);
+  }
+
+  async function load() {
+    $('list').innerHTML = '<tbody><tr><td><div class="skel" style="width:70%"></div></td></tr></tbody>';
+    const d = await api('/api/texts?' + qs());
+    if (d.error) { $('list').innerHTML = `<tbody><tr><td class="l sec">${esc(d.error)}</td></tr></tbody>`; return; }
+    rows = d.rows; const t = d.totals;
+    const tile = (k, v) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+    $('kpis').innerHTML = tile('Texts sent', N(t.sends)) + tile('Different messages', N(d.templates)) + tile('Reply rate', P(t.replies, t.sends)) + tile('Positive rate', P(t.positive, t.sends)) + tile('Opt-out rate', P(t.opt_out, t.sends));
+    if (!rows.length) { $('list').innerHTML = `<tbody><tr><td class="l sec" style="padding:18px 14px">No message was sent at least ${N($('minSends').value)} times in this range. Lower Min sends or widen the dates.</td></tr></tbody>`; return; }
+    $('list').innerHTML = `<thead><tr><th>#</th><th class="l">Message</th><th>Sent</th><th>Replied</th><th>Positive</th><th>Opt-out</th><th>Deals won</th></tr></thead><tbody>${rows.map((r, i) => `
+      <tr class="click" data-i="${i}"><td class="rank">${i + 1}</td>
+        <td class="msg">${tpl(r.template)}<span class="sub">${N(r.subaccounts)} sub-account${r.subaccounts === 1 ? '' : 's'} · ${r.sent_by ? esc(r.sent_by.replace(/_/g, ' ')) + ' · ' : ''}${D(r.first_sent)} – ${D(r.last_sent)}</span></td>
+        <td>${N(r.sends)}</td><td>${rate(r.replies, r.sends, 'var(--blue)')}</td><td>${rate(r.positive, r.sends, 'var(--green)')}</td><td>${rate(r.opt_out, r.sends, 'var(--red)')}</td><td>${r.won ? `${N(r.won)}<span class="sub">${P(r.won, r.contacts)} of contacts</span>` : '—'}</td></tr>`).join('')}</tbody>`;
+    $('list').querySelectorAll('tr.click').forEach((tr) => tr.onclick = () => detail(rows[Number(tr.dataset.i)]));
+  }
+
+  async function detail(r) {
+    const box = V.openSheet(`${V.head('message', '--t-blue', 'Message details', `${N(r.sends)} sent · ${P(r.replies, r.sends)} replied · ${P(r.positive, r.sends)} positive`)}<div class="sheet-bd" id="dbody"><div class="skel" style="width:60%"></div></div><div class="sheet-ft"><button class="btn tinted" data-close>Close</button></div>`, { wide: true });
+    box.querySelectorAll('[data-close]').forEach((b) => b.onclick = V.closeSheet);
+    const p = new URLSearchParams({ from: $('from').value, to: $('to').value, locationId: $('locSel').value });
+    const d = await api(`/api/texts/${encodeURIComponent(r.key)}?${p}`);
+    if (d.error) { box.querySelector('#dbody').innerHTML = `<p class="sec">${esc(d.error)}</p>`; return; }
+    const byLabel = {}; for (const x of d.replies) (byLabel[x.label] ??= []).push(x);
+    box.querySelector('#dbody').innerHTML = `
+      <div class="gh">Most recent send</div><div class="example">${esc(d.example || r.template)}</div>
+      <div class="gh">Template</div><div class="example">${tpl(r.template)}</div>
+      ${['positive', 'negative', 'other', 'opt_out'].filter((k) => byLabel[k]).map((k) => `<div class="gh"><span class="lbl ${k}">${LABEL[k]}</span> replies</div><div class="rep">${byLabel[k].map((x) => `<div class="r">${esc(x.reply)}<div class="sub">${V.DT(x.reply_at)} · <a href="${V.ghlContactUrl(x.location_id, x.contact_id)}" target="_blank" rel="noopener">open contact</a></div></div>`).join('')}</div>`).join('')}
+      <div class="gh" style="margin-top:14px">By sub-account</div>
+      <div class="table-wrap num"><table><thead><tr><th class="l" style="text-align:left">Sub-account</th><th>Sent</th><th>Replied</th><th>Positive</th><th>Opt-out</th><th>Won</th></tr></thead><tbody>${d.subaccounts.map((s) => `<tr><td style="text-align:left">${esc(s.name || s.location_id)}</td><td>${N(s.sends)}</td><td>${P(s.replies, s.sends)}</td><td>${P(s.positive, s.sends)}</td><td>${P(s.opt_out, s.sends)}</td><td>${N(s.won)}</td></tr>`).join('')}</tbody></table></div>`;
+  }
+
+  $('csv').onclick = () => {
+    const cols = [['template', 'Message'], ['sends', 'Sent'], ['subaccounts', 'Sub-accounts'], ['replies', 'Replied'], ['positive', 'Positive'], ['negative', 'Negative'], ['opt_out', 'Opt-out'], ['won', 'Deals won'], ['sent_by', 'Sent by']];
+    V.downloadText('best-texts.csv', [cols.map((c) => V.csvCell(c[1])).join(',')].concat(rows.map((r) => cols.map((c) => V.csvCell(r[c[0]])).join(','))).join('\n'));
+    RGS.toast('CSV downloaded');
+  };
+
+  V.nav('texts');
+  RGS.ready.then(() => {
+    $('csv').innerHTML = RGS.icon('download');
+    api('/api/locations').then((ls) => {
+      if (Array.isArray(ls)) $('locSel').innerHTML = '<option value="">All sub-accounts</option>' + ls.map((l) => `<option value="${esc(l.location_id)}">${esc(l.name || l.location_id)}</option>`).join('');
+      setRange(90); loadStatus(); load();
+    });
+  });
+})();
+</script>
+</body>
+</html>

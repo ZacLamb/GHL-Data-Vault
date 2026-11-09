@@ -10,19 +10,29 @@ const CHANNEL = t => {
   if (s.includes('INSTAGRAM') || s.includes('IG')) return 'IG'; if (s.includes('LIVE') || s.includes('CHAT')) return 'LIVE_CHAT'; if (s.includes('GMB')) return 'GMB';
   if (s.includes('ACTIVITY')) return 'ACTIVITY'; return 'OTHER';
 };
+// Wording is kept for text channels only (emails are HTML and calls have none): it feeds Best texts.
+const TEXT_CHANNELS = new Set(['SMS', 'WHATSAPP', 'FB', 'IG', 'LIVE_CHAT', 'GMB']);
 async function recordMessage(locationId, conv, m) {
-  await q(`INSERT INTO messages (location_id, message_id, conversation_id, contact_id, user_id, direction, channel, status, call_duration, date_added)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-           ON CONFLICT (location_id, message_id) DO UPDATE SET user_id=EXCLUDED.user_id, status=EXCLUDED.status, call_duration=EXCLUDED.call_duration`,
-    [locationId, m.id, conv.id, m.contactId || conv.contactId, m.userId || null, m.direction || null, CHANNEL(m.messageType || m.type),
-     m.status || m.meta?.call?.status || null, Number(m.meta?.call?.duration ?? 0) || null, m.dateAdded ? new Date(m.dateAdded) : null]);
+  const channel = CHANNEL(m.messageType || m.type);
+  const body = TEXT_CHANNELS.has(channel) && typeof m.body === 'string' && m.body.trim() ? m.body.slice(0, 2000) : null;
+  await q(`INSERT INTO messages (location_id, message_id, conversation_id, contact_id, user_id, direction, channel, status, call_duration, date_added, body, sent_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+           ON CONFLICT (location_id, message_id) DO UPDATE SET user_id=EXCLUDED.user_id, status=EXCLUDED.status, call_duration=EXCLUDED.call_duration,
+             body=COALESCE(EXCLUDED.body, messages.body), sent_by=COALESCE(EXCLUDED.sent_by, messages.sent_by)`,
+    [locationId, m.id, conv.id, m.contactId || conv.contactId, m.userId || null, m.direction || null, channel,
+     m.status || m.meta?.call?.status || null, Number(m.meta?.call?.duration ?? 0) || null, m.dateAdded ? new Date(m.dateAdded) : null,
+     body, m.source || null]);
 }
 
 const BASE = 'https://services.leadconnectorhq.com';
 const CALL_TYPES = new Set(['TYPE_CALL', 'TYPE_VOICEMAIL']);
 
+// On-demand "message_text": the same walk, recording messages only (no attachment or recording
+// downloads). Used once per sub-account to fill in wording for messages backed up before it was kept.
+export const messageText = (ctx) => conversations({ ...ctx, textOnly: true });
+
 export async function conversations(ctx) {
-  const { jobId, locationId, progress, save, since } = ctx;
+  const { jobId, locationId, progress, save, since, textOnly } = ctx;
   const run = limiter();
   progress.conversations ??= 0; progress.messages ??= 0; progress.filesFound ??= 0;
   let startAfterDate = progress.startAfterDate || (since ? new Date(since).getTime() : undefined);
@@ -44,6 +54,7 @@ export async function conversations(ctx) {
         for (const m of msgs) {
           progress.messages++;
           tasks.push(recordMessage(locationId, conv, m).catch(() => {}));
+          if (textOnly) continue;
           for (const url of m.attachments || []) {
             progress.filesFound++;
             tasks.push(run(() => ingest(jobId, locationId, typeof url === 'string' ? url : url.url, {

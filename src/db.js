@@ -234,6 +234,24 @@ export async function migrate() {
     );
     CREATE INDEX IF NOT EXISTS notes_contact ON notes(location_id, contact_id);
     ALTER TABLE locations ADD COLUMN IF NOT EXISTS ghl_deleted_at TIMESTAMPTZ;   -- sub-account deleted in GHL from Usage; the backup is kept
+    -- Best texts: message wording (text channels only) and, per outbound text, what happened next.
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS body TEXT;
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS sent_by TEXT;        -- GHL message source: workflow, bulk_actions, app, api...
+    CREATE INDEX IF NOT EXISTS messages_conv_date ON messages(location_id, conversation_id, date_added);
+    CREATE TABLE IF NOT EXISTS text_outcomes (
+      location_id TEXT NOT NULL, message_id TEXT NOT NULL,
+      contact_id TEXT, sent_at TIMESTAMPTZ, sent_by TEXT,
+      template_key TEXT NOT NULL,       -- hash of the normalized wording: the same blast to 5,000 people is one key
+      template TEXT NOT NULL,           -- the wording with names, amounts and links swapped for {placeholders}
+      reply TEXT, reply_at TIMESTAMPTZ,
+      label TEXT NOT NULL,              -- none | positive | negative | opt_out | other
+      label_by TEXT,                    -- rule | ai
+      won BOOLEAN NOT NULL DEFAULT false,   -- the contact had a deal marked won within 90 days of the text
+      final BOOLEAN NOT NULL DEFAULT false, -- reply window closed: no need to look at it again
+      PRIMARY KEY (location_id, message_id)
+    );
+    CREATE INDEX IF NOT EXISTS text_outcomes_key ON text_outcomes(template_key);
+    CREATE INDEX IF NOT EXISTS text_outcomes_loc_sent ON text_outcomes(location_id, sent_at);
   `);
   // One-time cleanup: recordings that 422'd are calls with no recording, not failures.
   await q(`UPDATE files SET status='skipped', error='no recording' WHERE source='recording' AND status='failed' AND error LIKE 'HTTP 422%'`);

@@ -49,7 +49,7 @@
   // ---------- page switcher (segmented control in the toolbar) ----------
   function nav(active) {
     const el = document.getElementById('nav'); if (!el) return;
-    const items = [['vault', '/app', 'Backups'], ['search', '/search.html', 'Search'], ['usage', '/usage.html', 'Usage']];
+    const items = [['vault', '/app', 'Backups'], ['search', '/search.html', 'Search'], ['usage', '/usage.html', 'Usage'], ['texts', '/texts.html', 'Best texts']];
     el.innerHTML = items.map(([k, href, label]) => `<a href="${href}" class="${k === active ? 'on' : ''}">${label}</a>`).join('');
   }
 
