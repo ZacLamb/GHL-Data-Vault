@@ -42,6 +42,8 @@ export async function conversations(ctx) {
       query: { locationId, limit: 100, sort: 'asc', sortBy: 'last_message_date', startAfterDate },
     });
     const convs = data.conversations || [];
+    // Size of the job, for progress bars (only meaningful for a full pass, not a since-last-backup one).
+    if (!since && progress.total == null && Number.isFinite(Number(data.total))) progress.total = Number(data.total);
     if (!convs.length) break;
 
     for (const conv of convs) {
