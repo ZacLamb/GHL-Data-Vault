@@ -146,24 +146,43 @@ app.get('/api/me', hub.me);
 
 // Ownership: every location belongs to one hub account. Everything below goes through these.
 const me = req => req.hubUser.id;
+
+// Inside HighLevel (opened from a sub-account's left menu, possibly by the client's own admins) a
+// session belongs to that one sub-account: it never sees the account's other sub-accounts or anything
+// agency-wide (Best texts, Usage across sub-accounts, search, backups, settings).
+const embedLoc = req => (req.hubUser?.embedded ? req.hubUser.connections?.[0]?.location_id || '-' : null);
+const AGENCY_ONLY = [/^\/texts/, /^\/usage\//, /^\/api-usage/, /^\/backup\//, /^\/agency-token/, /^\/orphans/, /^\/search\//, /^\/locations\/import-agency/, /^\/locations\/[^/]+\/delete-in-ghl/];
+app.use('/api', (req, res, next) => {
+  const loc = embedLoc(req); req.embedLoc = loc;
+  if (!loc) return next();
+  const p = req.path;
+  if (AGENCY_ONLY.some(rx => rx.test(p)) || (req.method === 'POST' && (/^\/pushes(\/preview)?$/.test(p) || p === '/locations'))) {
+    return res.status(403).json({ error: 'Inside HighLevel, Backup & Insights only covers this sub-account. Open it from RGS Tools for this.' });
+  }
+  const m = p.match(/^\/locations\/([^/]+)/);
+  if (m && m[1] !== loc) return res.status(404).json({ error: 'No such location in your vault' });
+  if (['/jobs', '/packages', '/pushes'].includes(p)) req.query.locationId = loc;
+  next();
+});
+
 async function own(req, res, locationId) {
   const { rows: [l] } = await q('SELECT owner_id FROM locations WHERE location_id=$1', [locationId]);
-  if (!l || l.owner_id !== me(req)) { res.status(404).json({ error: 'No such location in your vault' }); return false; }
+  if (!l || l.owner_id !== me(req) || (req.embedLoc && locationId !== req.embedLoc)) { res.status(404).json({ error: 'No such location in your vault' }); return false; }
   return true;
 }
 const ownLoc = async (req, res, next) => { if (await own(req, res, req.params.id)) next(); };
 async function ownJob(req, res, next) {
   const { rows: [j] } = await q('SELECT j.location_id, l.owner_id FROM jobs j JOIN locations l ON l.location_id=j.location_id WHERE j.id=$1', [req.params.id]);
-  if (!j || j.owner_id !== me(req)) return res.status(404).json({ error: 'No such job' });
+  if (!j || j.owner_id !== me(req) || (req.embedLoc && j.location_id !== req.embedLoc)) return res.status(404).json({ error: 'No such job' });
   next();
 }
 async function ownPkg(req, res, next) {
   const { rows: [p] } = await q('SELECT p.*, l.owner_id FROM packages p JOIN locations l ON l.location_id=p.location_id WHERE p.id=$1', [req.params.id]);
-  if (!p || p.owner_id !== me(req)) return res.status(404).json({ error: 'No such package' });
+  if (!p || p.owner_id !== me(req) || (req.embedLoc && p.location_id !== req.embedLoc)) return res.status(404).json({ error: 'No such package' });
   req.pkg = p; next();
 }
 async function ownPush(req, res, next) {
-  const { rows: [p] } = await q('SELECT p.id FROM pushes p JOIN locations l ON l.location_id=p.source_location_id WHERE p.id=$1 AND l.owner_id=$2', [req.params.id, me(req)]);
+  const { rows: [p] } = await q('SELECT p.id FROM pushes p JOIN locations l ON l.location_id=p.source_location_id WHERE p.id=$1 AND l.owner_id=$2 AND ($3::text IS NULL OR p.source_location_id=$3)', [req.params.id, me(req), req.embedLoc]);
   if (!p) return res.status(404).json({ error: 'No such push' });
   next();
 }
@@ -183,8 +202,8 @@ app.get('/api/locations', async (req, res) => {
              coalesce(f.files_done,0) AS files_done, coalesce(f.files_failed,0) AS files_failed, coalesce(f.bytes,0) AS bytes,
              CASE WHEN j.id IS NULL THEN NULL ELSE json_build_object('id',j.id,'status',j.status,'sources',j.sources,'progress',j.progress,'since',j.since,'trigger',j.trigger,'created_at',j.created_at,'finished_at',j.finished_at,'not_before',j.not_before) END AS last_job
       FROM locations l LEFT JOIN f ON f.location_id=l.location_id LEFT JOIN j ON j.location_id=l.location_id LEFT JOIN c ON c.location_id=l.location_id
-      WHERE l.owner_id=$1
-      ORDER BY l.name NULLS LAST, l.location_id`, [me(req)]);
+      WHERE l.owner_id=$1 AND ($2::text IS NULL OR l.location_id=$2)
+      ORDER BY l.name NULLS LAST, l.location_id`, [me(req), req.embedLoc]);
     res.json(rows);
   } catch (err) { console.error('locations', err); res.status(500).json({ error: err.message }); }
 });
@@ -238,7 +257,7 @@ app.get('/api/backup', async (req, res) => {
   const sch = await getSchedule(me(req));
   const { rows: [c] } = await q(`SELECT count(*) AS total, count(*) FILTER (WHERE backup_enabled) AS enabled,
     count(*) FILTER (WHERE EXISTS (SELECT 1 FROM jobs j WHERE j.location_id=l.location_id AND j.status='done')) AS backed_up,
-    count(*) FILTER (WHERE EXISTS (SELECT 1 FROM jobs j WHERE j.location_id=l.location_id AND j.status IN ('queued','running'))) AS in_progress FROM locations l WHERE l.owner_id=$1`, [me(req)]);
+    count(*) FILTER (WHERE EXISTS (SELECT 1 FROM jobs j WHERE j.location_id=l.location_id AND j.status IN ('queued','running'))) AS in_progress FROM locations l WHERE l.owner_id=$1 AND ($2::text IS NULL OR l.location_id=$2)`, [me(req), req.embedLoc]);
   const { rows: mine } = await q('SELECT location_id FROM locations WHERE owner_id=$1', [me(req)]);
   const inVault = new Set(mine.map(r => r.location_id));
   const connected = (req.hubUser.connections || []).map(x => ({ locationId: x.location_id, label: x.label, inVault: inVault.has(x.location_id) }));
@@ -374,7 +393,7 @@ app.get('/api/locations/:id/shares', ownLoc, async (req, res) => {
   const { rows } = await q(`SELECT token, scope, label, expires_at, created_at, (password_hash IS NOT NULL) AS protected FROM shares WHERE location_id=$1 AND ($2::text IS NULL OR scope=$2) AND expires_at > now() ORDER BY created_at DESC`, [req.params.id, req.query.scope || null]);
   res.json(rows.map(r => ({ ...r, url: `${req.protocol}://${req.get('host')}/share/${r.token}` })));
 });
-app.delete('/api/shares/:token', async (req, res) => { await q('DELETE FROM shares s USING locations l WHERE s.token=$1 AND l.location_id=s.location_id AND l.owner_id=$2', [req.params.token, me(req)]); res.json({ ok: true }); });
+app.delete('/api/shares/:token', async (req, res) => { await q('DELETE FROM shares s USING locations l WHERE s.token=$1 AND l.location_id=s.location_id AND l.owner_id=$2 AND ($3::text IS NULL OR s.location_id=$3)', [req.params.token, me(req), req.embedLoc]); res.json({ ok: true }); });
 
 app.get('/api/locations/:id/bundles', ownLoc, async (req, res) => res.json(await bundleStatus(req.params.id, req.query.scope || 'location')));
 app.post('/api/locations/:id/bundles', ownLoc, async (req, res) => {
@@ -483,8 +502,8 @@ app.get('/api/pushes', async (req, res) => {
   const { rows } = await q(`
     SELECT p.*, s.name AS source_name, t.name AS target_name
     FROM pushes p JOIN locations s ON s.location_id=p.source_location_id LEFT JOIN locations t ON t.location_id=p.target_location_id
-    WHERE s.owner_id=$2 AND ($1::text IS NULL OR p.source_location_id=$1 OR p.target_location_id=$1)
-    ORDER BY p.id DESC LIMIT 100`, [loc, me(req)]);
+    WHERE s.owner_id=$2 AND ($1::text IS NULL OR p.source_location_id=$1 OR (p.target_location_id=$1 AND $3::text IS NULL))
+    ORDER BY p.id DESC LIMIT 100`, [loc, me(req), req.embedLoc]);
   res.json(rows);
 });
 app.post('/api/pushes/:id/cancel', ownPush, async (req, res) => {
@@ -665,7 +684,7 @@ app.post('/api/search/contact/:loc/:id/delete', async (req, res) => {
   res.json({ results, deleted: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length });
 });
 app.get('/api/files/:id/download', async (req, res) => {
-  const { rows: [f] } = await q(`SELECT f.r2_key, f.original_filename FROM files f JOIN locations l ON l.location_id=f.location_id WHERE f.id=$1 AND f.status='done' AND l.owner_id=$2`, [req.params.id, me(req)]);
+  const { rows: [f] } = await q(`SELECT f.r2_key, f.original_filename FROM files f JOIN locations l ON l.location_id=f.location_id WHERE f.id=$1 AND f.status='done' AND l.owner_id=$2 AND ($3::text IS NULL OR f.location_id=$3)`, [req.params.id, me(req), req.embedLoc]);
   if (!f?.r2_key) return res.status(404).send('not found');
   res.redirect(await presign(f.r2_key, f.original_filename || f.r2_key.split('/').pop(), 3600));
 });
