@@ -214,6 +214,12 @@ export async function migrate() {
       expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ DEFAULT now()
     );
     ALTER TABLE shares ADD COLUMN IF NOT EXISTS password_hash TEXT;
+    CREATE TABLE IF NOT EXISTS convo_shares (      -- private links to one contact's conversation: a frozen copy, expiring, revocable
+      token TEXT PRIMARY KEY, location_id TEXT NOT NULL, contact_id TEXT NOT NULL, owner_id INT NOT NULL,
+      title TEXT, sub TEXT, messages JSONB NOT NULL, total INT NOT NULL DEFAULT 0, password_hash TEXT,
+      created_at TIMESTAMPTZ DEFAULT now(), expires_at TIMESTAMPTZ, revoked_at TIMESTAMPTZ, views INT NOT NULL DEFAULT 0, last_viewed_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS convo_shares_contact ON convo_shares(location_id, contact_id);
     CREATE TABLE IF NOT EXISTS bundles (           -- pre-built zip parts stored in R2 for direct download
       id SERIAL PRIMARY KEY, location_id TEXT NOT NULL, scope TEXT NOT NULL,   -- 'location' or 'package:<id>'
       part INT NOT NULL, total_parts INT NOT NULL, file_count INT NOT NULL,

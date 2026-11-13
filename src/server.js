@@ -21,6 +21,7 @@ import { locationUsage, userUsage, dailySeries, agencyOverview } from './usage.j
 import { rankTexts, textDetail, textsStatus, collectText, refreshAll } from './texts.js';
 import { agencyStatus, saveAgencyToken, removeAgencyToken, deleteSubAccount } from './agency.js';
 import crypto from 'node:crypto';
+import { renderPage, toText, toCsv } from './convo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -127,6 +128,32 @@ app.get('/share/:token', async (req, res) => {
   <p><small>Download every part and unzip them into the same folder. Part 1 includes <b>contacts.csv</b> (the records) and <b>manifest.csv</b> (which file belongs to which contact); documents are in one folder per contact.</small></p>
   ${links.map(b => `<div class="part"><div><b>Part ${b.part} of ${b.total_parts}</b><br><small>${b.file_count.toLocaleString()} files${b.bytes ? ' · ' + fmt(b.bytes) : ''}${b.status !== 'done' ? ' · ' + b.status : ''}</small></div>${b.url ? `<a class="dl" href="${b.url}">Download</a>` : '<small>not ready yet</small>'}</div>`).join('') || '<p>Nothing prepared yet.</p>'}
   <p><small>Download links on this page refresh each time it's opened; if one stops working, reload the page.</small></p>`);
+});
+
+// --- shared conversation links: a frozen copy of one contact's thread, expiring, optional password ---------
+const convoGone = (res, code, msg) => res.status(code).type('html').send(`<!doctype html><meta charset="utf-8"><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font:15px/1.6 -apple-system,Segoe UI,Arial,sans-serif;max-width:420px;margin:80px auto;padding:0 24px;color:#1c1b18"><h1 style="font-size:20px">${msg}</h1>`);
+async function convoByToken(req, res) {
+  const { rows: [sh] } = await q('SELECT * FROM convo_shares WHERE token=$1', [req.params.token]);
+  if (!sh || sh.revoked_at) { convoGone(res, 404, 'This link is no longer available.'); return null; }
+  if (sh.expires_at && new Date(sh.expires_at) < new Date()) { convoGone(res, 410, 'This link has expired.'); return null; }
+  return sh;
+}
+const convoCookie = (req, token) => `sh_${token}=${shareSig(token)}; Path=/convo/${token}; HttpOnly; SameSite=Lax; Max-Age=43200${req.secure || req.get('x-forwarded-proto') === 'https' ? '; Secure' : ''}`;
+app.post('/convo/:token', express.urlencoded({ extended: false }), async (req, res) => {
+  const sh = await convoByToken(req, res); if (!sh) return;
+  if (!checkPw(req.body?.password, sh.password_hash)) return res.status(401).type('html').send(pwPage(sh.title || 'Conversation', true));
+  res.set('Set-Cookie', convoCookie(req, sh.token)); res.redirect(`/convo/${sh.token}`);
+});
+app.get('/convo/:token/:fmt(txt|csv)?', async (req, res) => {
+  const sh = await convoByToken(req, res); if (!sh) return;
+  if (sh.password_hash && !unlocked(req, sh.token)) return res.type('html').send(pwPage(sh.title || 'Conversation', false));
+  res.set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex', 'Referrer-Policy': 'no-referrer' });
+  await q('UPDATE convo_shares SET views=views+1, last_viewed_at=now() WHERE token=$1', [sh.token]).catch(() => {});
+  const d = { title: sh.title, sub: sh.sub, messages: sh.messages, total: sh.total };
+  const base = (sh.title || 'conversation').replace(/[^\w.-]+/g, '_').slice(0, 60);
+  if (req.params.fmt === 'txt') return res.type('text/plain; charset=utf-8').set('Content-Disposition', `attachment; filename="${base}.txt"`).send(toText(d));
+  if (req.params.fmt === 'csv') return res.type('text/csv; charset=utf-8').set('Content-Disposition', `attachment; filename="${base}.csv"`).send(toCsv(d));
+  res.type('html').send(renderPage({ ...d, note: `snapshot, link valid until ${sh.expires_at ? new Date(sh.expires_at).toISOString().slice(0, 10) : 'revoked'}`, links: [{ href: `/convo/${sh.token}/txt`, label: 'Download text' }, { href: `/convo/${sh.token}/csv`, label: 'Download CSV' }] }));
 });
 
 // --- auth: hub session for pages and API; design assets + public pages stay open ----------
@@ -658,6 +685,42 @@ app.get('/api/locations/:id/events', ownLoc, async (req, res) => {
 app.get('/api/search/totals', async (req, res) => res.json(await agencyTotals(me(req))));
 app.get('/api/search/contacts', async (req, res) => res.json(await searchContacts(req.query.q || '', { locationId: req.query.loc || null, limit: Math.min(200, Number(req.query.limit) || 50), offset: Number(req.query.offset) || 0, ownerId: me(req) })));
 app.get('/api/search/files', async (req, res) => res.json(await searchFiles(req.query.q || '', { locationId: req.query.loc || null, limit: Math.min(200, Number(req.query.limit) || 50), offset: Number(req.query.offset) || 0, ownerId: me(req) })));
+// Export and share a contact's conversation from Search.
+async function convoOf(req, res) {
+  if (!(await own(req, res, req.params.loc))) return null;
+  const { rows: [c] } = await q(`SELECT c.first_name, c.last_name, c.company, l.name AS location_name FROM contacts c JOIN locations l ON l.location_id=c.location_id WHERE c.location_id=$1 AND c.contact_id=$2`, [req.params.loc, req.params.id]);
+  if (!c) { res.status(404).json({ error: 'Contact not found in the vault' }); return null; }
+  const { messages, total } = await contactMessages(req.params.loc, req.params.id, 2000);
+  const full = [c.first_name, c.last_name].filter(Boolean).join(' ') || c.company || req.params.id;
+  return { title: full, sub: [c.company && c.company !== full ? c.company : null, c.location_name].filter(Boolean).join(' · '), messages, total };
+}
+app.get('/api/search/contact/:loc/:id/export', async (req, res) => {
+  const d = await convoOf(req, res); if (!d) return;
+  const fmt = req.query.format === 'csv' ? 'csv' : req.query.format === 'print' ? 'print' : 'txt';
+  const base = d.title.replace(/[^\w.-]+/g, '_').slice(0, 60) || 'conversation';
+  if (fmt === 'print') return res.type('html').set('Cache-Control', 'no-store').send(renderPage({ ...d, autoPrint: true }));
+  res.type(fmt === 'csv' ? 'text/csv; charset=utf-8' : 'text/plain; charset=utf-8').set('Content-Disposition', `attachment; filename="${base}.${fmt}"`).send(fmt === 'csv' ? toCsv(d) : toText(d));
+});
+app.post('/api/search/contact/:loc/:id/share', async (req, res) => {
+  const d = await convoOf(req, res); if (!d) return;
+  const days = [1, 7, 30, 90].includes(Number(req.body?.days)) ? Number(req.body.days) : 7;
+  const pw = String(req.body?.password || '').trim();
+  const token = crypto.randomBytes(18).toString('base64url');
+  await q(`INSERT INTO convo_shares (token, location_id, contact_id, owner_id, title, sub, messages, total, password_hash, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now() + ($10 || ' days')::interval)`,
+    [token, req.params.loc, req.params.id, me(req), d.title, d.sub, JSON.stringify(d.messages), d.total, pw ? hashPw(pw) : null, String(days)]);
+  res.json({ token, url: `https://${req.get('x-forwarded-host') || req.get('host')}/convo/${token}`, days, protected: !!pw });
+});
+app.get('/api/search/contact/:loc/:id/shares', async (req, res) => {
+  if (!(await own(req, res, req.params.loc))) return;
+  const { rows } = await q(`SELECT token, created_at, expires_at, views, last_viewed_at, (password_hash IS NOT NULL) AS protected, jsonb_array_length(messages) AS n FROM convo_shares
+    WHERE location_id=$1 AND contact_id=$2 AND owner_id=$3 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()) ORDER BY created_at DESC`, [req.params.loc, req.params.id, me(req)]);
+  const host = req.get('x-forwarded-host') || req.get('host');
+  res.json(rows.map((r) => ({ ...r, url: `https://${host}/convo/${r.token}` })));
+});
+app.delete('/api/search/convo-shares/:token', async (req, res) => {
+  const { rowCount } = await q('UPDATE convo_shares SET revoked_at=now() WHERE token=$1 AND owner_id=$2 AND revoked_at IS NULL', [req.params.token, me(req)]);
+  res.json({ ok: rowCount > 0 });
+});
 app.get('/api/search/contact/:loc/:id/messages', async (req, res) => { if (!(await own(req, res, req.params.loc))) return; res.json(await contactMessages(req.params.loc, req.params.id)); });
 app.get('/api/search/contact/:loc/:id', async (req, res) => { if (!(await own(req, res, req.params.loc))) return; res.json(await contactDetail(req.params.loc, req.params.id, me(req))); });
 // Delete a contact in GoHighLevel from Search, optionally its matches in other sub-accounts too.

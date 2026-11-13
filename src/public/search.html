@@ -131,12 +131,13 @@
       <div class="grp card">${d.files.map((f) => `<div class="li">${RGS.glyph('file', '--t-sky')}<div class="main"><b>${esc(f.field_name || f.source)}</b><span class="sub">${esc(f.original_filename || '')} · ${fmtB(f.size_bytes)}${f.uploaded_at ? ' · ' + D(f.uploaded_at) : ''}</span></div><span class="end"><a class="icon-btn" href="/api/files/${f.id}/download" title="Download" style="color:var(--blue)">${I('download')}</a></span></div>`).join('') || '<div class="li flush sec">None in the vault</div>'}</div>
       <div class="gh">Opportunities<span class="end">${N(d.opportunities.length)}</span></div>
       <div class="grp card">${d.opportunities.map((o) => `<div class="li flush"><div class="main"><b>$${N(o.monetary_value)}</b><span class="sub">${D(o.created_at)}</span></div><span class="end"><span class="pill ${o.status === 'won' ? 'ok' : o.status === 'lost' ? 'bad' : ''}">${esc(o.status)}</span></span></div>`).join('') || '<div class="li flush sec">None</div>'}</div>
-      <div class="gh">Conversation<span class="end" id="thN">${N(d.messages.reduce((a, m) => a + m.n, 0))}</span></div>
+      <div class="gh">Conversation<span class="end">${d.messages.length ? '<button class="btn sm tinted" id="shareBtn" type="button">Share / export</button> ' : ''}<span id="thN">${N(d.messages.reduce((a, m) => a + m.n, 0))}</span></span></div>
       <div id="thread"><div class="grp card"><div class="li flush sec">${d.messages.length ? '<span class="spin"></span>Loading…' : 'No messages saved'}</div></div></div>
       <div class="gh">Also in</div>
       <div class="grp card">${d.alsoIn.map((a) => `<div class="li click" data-also="${esc(a.location_id)}" data-id="${esc(a.contact_id)}">${RGS.avatarHtml(a.location_name || a.location_id, 'sm')}<div class="main"><b>${esc(a.location_name || a.location_id)}</b><span class="sub">${esc(name(a) || a.company || '')}</span></div><span class="end"><span class="chev">${I('right')}</span></span></div>`).join('') || '<div class="li flush sec">No other sub-account has this email or phone</div>'}</div>`;
     $('insp').scrollTop = 0;
     if (d.messages.length) loadThread(loc, id);
+    const sb = $('shareBtn'); if (sb) sb.onclick = () => shareSheet(loc, id, full);
     const del = $('delGhl'); if (del) del.onclick = () => deleteInGhl(loc, id, full, c.location_name || loc, d.alsoIn);
   }
 
@@ -177,6 +178,40 @@
     rz.addEventListener('dblclick', () => { w = 400; set(w); try { localStorage.removeItem(KEY); } catch (e) {} });
     window.addEventListener('resize', () => set(w));
   })();
+
+  // Export the conversation, or send someone a private link to a frozen copy of it.
+  function shareSheet(loc, id, full) {
+    const base = `/api/search/contact/${encodeURIComponent(loc)}/${encodeURIComponent(id)}`;
+    const box = V.openSheet(`${V.head('external', '--t-blue', 'Share or export', esc(full))}
+      <div class="sheet-bd">
+        <div class="gh" style="padding-left:0">Download</div>
+        <div class="qa" style="margin-bottom:14px"><a href="${base}/export?format=print" target="_blank" rel="noopener">${I('download')}PDF</a><a href="${base}/export?format=txt">${I('download')}Text</a><a href="${base}/export?format=csv">${I('download')}CSV</a></div>
+        <div class="gh" style="padding-left:0">Private link</div>
+        <p class="sec" style="font-size:13px;margin-bottom:10px">Anyone with the link can read this conversation as it is right now. Later messages won't appear. It stops working on the date you pick, or when you turn it off.</p>
+        <div class="grp"><div class="fr"><div class="lbl"><b style="font-weight:550">Expires after</b></div><div class="ctl"><select id="shDays"><option value="1">24 hours</option><option value="7" selected>7 days</option><option value="30">30 days</option><option value="90">90 days</option></select></div></div>
+        <div class="fr"><div class="lbl"><b style="font-weight:550">Password</b><div class="sec" style="font-size:12px">Optional</div></div><div class="ctl"><input type="text" id="shPw" placeholder="None" autocomplete="off" style="width:150px"></div></div></div>
+        <div class="status" id="shSt" style="display:none"></div>
+        <div id="shNew"></div>
+        <div class="gh" style="padding-left:0;margin-top:16px">Active links</div><div id="shList"><div class="status"><span class="spin"></span>Loading…</div></div>
+      </div>
+      <div class="sheet-ft"><button class="btn tinted" data-close>Close</button><button class="btn" id="shGo">Create link</button></div>`);
+    const list = async () => {
+      const r = await api(`${base}/shares`); const el = box.querySelector('#shList'); if (!el) return;
+      el.innerHTML = Array.isArray(r) && r.length ? `<div class="grp card">${r.map((x) => `<div class="li flush"><div class="main"><b>Until ${D(x.expires_at)}${x.protected ? ' · password' : ''}</b><span class="sub">${N(x.n)} messages · opened ${N(x.views)} time${x.views === 1 ? '' : 's'}</span></div><span class="end"><button class="btn sm tinted" data-cp="${esc(x.url)}">Copy</button><button class="btn sm tinted" data-rv="${esc(x.token)}" style="color:var(--red)">Turn off</button></span></div>`).join('')}</div>` : '<div class="sec" style="font-size:13px">None yet.</div>';
+    };
+    box.onclick = async (e) => {
+      const cp = e.target.closest('[data-cp]'); if (cp) { RGS.copy(cp.dataset.cp, 'Link'); return; }
+      const rv = e.target.closest('[data-rv]'); if (rv) { rv.disabled = true; await api(`/api/search/convo-shares/${encodeURIComponent(rv.dataset.rv)}`, { method: 'DELETE' }); RGS.toast('Link turned off'); list(); }
+    };
+    box.querySelector('#shGo').onclick = async () => {
+      const go = box.querySelector('#shGo'), st = box.querySelector('#shSt'); go.disabled = true; st.style.display = ''; st.innerHTML = '<span class="spin"></span>Creating…';
+      const r = await api(`${base}/share`, { method: 'POST', body: { days: Number(box.querySelector('#shDays').value), password: box.querySelector('#shPw').value } });
+      go.disabled = false; if (r.error) { st.textContent = r.error; return; } st.style.display = 'none';
+      box.querySelector('#shNew').innerHTML = `<div class="grp"><div class="fr"><div class="lbl"><input type="text" readonly value="${esc(r.url)}" style="width:100%" onfocus="this.select()"></div><div class="ctl"><button class="btn sm" data-cp="${esc(r.url)}">Copy link</button></div></div></div>`;
+      RGS.copy(r.url, 'Link'); list();
+    };
+    list();
+  }
 
   // Delete the contact in GoHighLevel (and, if ticked, the same person in other sub-accounts).
   // GHL can't undo this; the vault keeps its backup copy and marks it deleted.
