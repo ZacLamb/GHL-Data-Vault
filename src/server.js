@@ -15,7 +15,7 @@ import { ghl, parseFileFieldValue } from './ghl.js';
 import { createPackage, dissolvePackage, PACKAGE_SIZES, STANDARD_COLUMNS } from './packager.js';
 import { listObjects, deletePrefix, presign } from './storage.js';
 import { queueBundles } from './bundler.js';
-import { searchContacts, searchFiles, contactDetail, agencyTotals } from './search.js';
+import { searchContacts, searchFiles, contactDetail, contactMessages, agencyTotals } from './search.js';
 import { summary, breakdowns, search, searchAll } from './analytics.js';
 import { locationUsage, userUsage, dailySeries, agencyOverview } from './usage.js';
 import { rankTexts, textDetail, textsStatus, collectText, refreshAll } from './texts.js';
@@ -658,6 +658,7 @@ app.get('/api/locations/:id/events', ownLoc, async (req, res) => {
 app.get('/api/search/totals', async (req, res) => res.json(await agencyTotals(me(req))));
 app.get('/api/search/contacts', async (req, res) => res.json(await searchContacts(req.query.q || '', { locationId: req.query.loc || null, limit: Math.min(200, Number(req.query.limit) || 50), offset: Number(req.query.offset) || 0, ownerId: me(req) })));
 app.get('/api/search/files', async (req, res) => res.json(await searchFiles(req.query.q || '', { locationId: req.query.loc || null, limit: Math.min(200, Number(req.query.limit) || 50), offset: Number(req.query.offset) || 0, ownerId: me(req) })));
+app.get('/api/search/contact/:loc/:id/messages', async (req, res) => { if (!(await own(req, res, req.params.loc))) return; res.json(await contactMessages(req.params.loc, req.params.id)); });
 app.get('/api/search/contact/:loc/:id', async (req, res) => { if (!(await own(req, res, req.params.loc))) return; res.json(await contactDetail(req.params.loc, req.params.id, me(req))); });
 // Delete a contact in GoHighLevel from Search, optionally its matches in other sub-accounts too.
 // The vault keeps its backup copy (record + documents) and marks it deleted, so it can still be found and restored.
