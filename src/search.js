@@ -64,7 +64,7 @@ export async function contactDetail(locationId, contactId, ownerId) {
 }
 
 /** A contact's conversation, oldest first, capped to the latest `limit` messages. Wording is only kept for text channels. */
-export async function contactMessages(locationId, contactId, limit = 300) {
+export async function contactMessages(locationId, contactId, limit = 300) {   // export and share pass a larger limit
   const [{ rows }, { rows: [t] }] = await Promise.all([
     q(`SELECT * FROM (SELECT message_id, channel, direction, status, call_duration, date_added, body, sent_by FROM messages
          WHERE location_id=$1 AND contact_id=$2 ORDER BY date_added DESC NULLS LAST LIMIT $3) x ORDER BY date_added ASC NULLS FIRST`, [locationId, contactId, limit]),
