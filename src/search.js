@@ -63,6 +63,16 @@ export async function contactDetail(locationId, contactId, ownerId) {
   return { contact: c, files, opportunities: opps, messages: msgs.map(m => ({ ...m, n: Number(m.n) })), alsoIn: same };
 }
 
+/** A contact's conversation, oldest first, capped to the latest `limit` messages. Wording is only kept for text channels. */
+export async function contactMessages(locationId, contactId, limit = 300) {
+  const [{ rows }, { rows: [t] }] = await Promise.all([
+    q(`SELECT * FROM (SELECT message_id, channel, direction, status, call_duration, date_added, body, sent_by FROM messages
+         WHERE location_id=$1 AND contact_id=$2 ORDER BY date_added DESC NULLS LAST LIMIT $3) x ORDER BY date_added ASC NULLS FIRST`, [locationId, contactId, limit]),
+    q(`SELECT count(*) AS n FROM messages WHERE location_id=$1 AND contact_id=$2`, [locationId, contactId]),
+  ]);
+  return { messages: rows, total: Number(t.n) };
+}
+
 /** Agency-wide totals for the master page header. */
 export async function agencyTotals(ownerId) {
   const { rows: [r] } = await q(`WITH mine AS (SELECT location_id FROM locations WHERE owner_id=$1)
