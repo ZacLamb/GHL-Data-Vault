@@ -262,7 +262,7 @@
   RGS.ready.then(() => {
     I = (n) => RGS.icon(n);
     $('results').innerHTML = `<div class="empty">${RGS.glyph('search', '--t-blue')}<b>Search your vault</b>Type something and press Enter.</div>`;
-    api('/api/search/totals').then((t) => { if (t.error) return; const tile = (k, v) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div></div>`; $('totals').innerHTML = tile('Sub-accounts', N(t.locations)) + tile('Contacts', V.short(t.contacts)) + tile('Documents', V.short(t.files)) + tile('Stored', fmtB(t.bytes)); });
+    api('/api/search/totals').then((t) => { if (t.error) return; const tile = (k, v) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div></div>`; $('totals').innerHTML = tile('Sub-accounts', N(t.locations)) + tile('Contacts', V.short(t.contacts) + (t.unique_contacts != null && t.unique_contacts < t.contacts ? `<div class="sub" style="font-size:12px;font-weight:500;color:var(--muted,#6b7280)" title="Counted once across sub-accounts, matched on email or phone">${V.short(t.unique_contacts)} unique</div>` : '')) + tile('Documents', V.short(t.files)) + tile('Stored', fmtB(t.bytes)); });
     api('/api/locations').then((ls) => { if (!Array.isArray(ls)) return; $('loc').innerHTML = '<option value="">All sub-accounts</option>' + ls.map((l) => `<option value="${esc(l.location_id)}">${esc(l.name || l.location_id)}</option>`).join(''); });
   });
 })();
