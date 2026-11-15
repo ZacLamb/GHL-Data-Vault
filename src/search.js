@@ -79,5 +79,26 @@ export async function agencyTotals(ownerId) {
     SELECT (SELECT count(*) FROM mine) AS locations, (SELECT count(*) FROM contacts WHERE location_id IN (SELECT location_id FROM mine)) AS contacts,
     (SELECT count(*) FROM files WHERE status='done' AND location_id IN (SELECT location_id FROM mine)) AS files,
     (SELECT coalesce(sum(size_bytes),0) FROM files WHERE status='done' AND location_id IN (SELECT location_id FROM mine)) AS bytes`, [ownerId]);
-  return Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Number(v)]));
+  const out = Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Number(v)]));
+  out.unique_contacts = await uniqueContacts(ownerId);
+  return out;
+}
+
+// A "person" is identified the same way the contact panel's "also in other sub-accounts" matches:
+// lower-cased email, else a 10+ digit phone, else the contact itself (so unmatched contacts count once).
+// Scanning millions of rows is slow, so the result is cached per agency for 15 minutes.
+const uniqCache = new Map();
+async function uniqueContacts(ownerId) {
+  const hit = uniqCache.get(ownerId);
+  if (hit && Date.now() - hit.at < 15 * 60 * 1000) return hit.n;
+  if (hit?.pending) return hit.pending;
+  const pending = q(`SELECT count(DISTINCT coalesce(
+        nullif(lower(btrim(c.email)), ''),
+        CASE WHEN length(regexp_replace(coalesce(c.phone,''), '\\D','','g')) >= 10 THEN regexp_replace(c.phone, '\\D','','g') END,
+        c.location_id || ':' || c.contact_id)) AS n
+      FROM contacts c JOIN locations l ON l.location_id = c.location_id WHERE l.owner_id = $1`, [ownerId])
+    .then(({ rows: [r] }) => { const n = Number(r.n); uniqCache.set(ownerId, { at: Date.now(), n }); return n; })
+    .catch(() => { uniqCache.delete(ownerId); return null; });
+  uniqCache.set(ownerId, { at: 0, pending });
+  return pending;
 }
